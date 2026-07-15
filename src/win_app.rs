@@ -678,13 +678,13 @@ impl X360ceApp {
 
     fn render_status(&mut self, ui: &mut egui::Ui) {
         let (label, color) = if !self.runtime.driver_installed {
-            ("Driver missing", WARNING)
+            ("driver missing", WARNING)
         } else if self.runtime.virtual_connected {
-            ("Forwarding", SUCCESS)
+            ("forwarding", SUCCESS)
         } else if !self.state.emulation_enabled {
-            ("Paused", MUTED)
+            ("paused", MUTED)
         } else {
-            ("Waiting", WARNING)
+            ("waiting", WARNING)
         };
 
         let runtime_error = self.runtime.last_error.clone();
@@ -711,42 +711,51 @@ impl X360ceApp {
                     SURFACE_MUTED,
                     false,
                 );
-            });
-            ui.add_space(8.0);
-            ui.label(RichText::new(&self.status).color(MUTED));
-            if let Some(error) = &runtime_error {
-                ui.add_space(6.0);
-                ui.label(RichText::new(error).color(DANGER));
-            }
-            ui.add_space(10.0);
-            ui.horizontal(|ui| {
-                if ui
-                    .button(if self.state.emulation_enabled {
-                        "Disable output"
-                    } else {
-                        "Enable output"
-                    })
-                    .clicked()
+                if self.last_update_check
+                    .as_ref()
+                    .map(|check| check.is_update_available)
+                    .unwrap_or(false)
                 {
-                    self.set_emulation_enabled(!self.state.emulation_enabled);
+                    status_chip(ui, "update available", WARNING, true);
                 }
-                if ui.button("Refresh controllers").clicked() {
-                    self.engine.send(EngineCommand::Refresh);
-                    self.status = "Refreshing controllers…".to_owned();
-                    self.mark_activity();
+                ui.add_space(10.0);
+                ui.label(RichText::new(&self.status).size(12.0).color(MUTED));
+                if let Some(error) = &runtime_error {
+                    ui.label(RichText::new(error).size(12.0).color(DANGER));
                 }
-                if !self.runtime.driver_installed && ui.button("Install ViGEmBus").clicked() {
-                    match driver::launch_installer_elevated() {
-                        Ok(_) => {
-                            self.status =
-                                "Driver installer opened. Restart x360ce after install.".to_owned()
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if !self.runtime.driver_installed && ui.button("Install ViGEmBus").clicked() {
+                        match driver::launch_installer_elevated() {
+                            Ok(_) => {
+                                self.status =
+                                    "Driver installer opened. Restart x360ce after install."
+                                        .to_owned()
+                            }
+                            Err(error) => {
+                                self.status = format!("Driver installer failed: {error}")
+                            }
                         }
-                        Err(error) => self.status = format!("Driver installer failed: {error}"),
                     }
-                }
+                    if ui.button("Refresh").clicked() {
+                        self.engine.send(EngineCommand::Refresh);
+                        self.status = "Refreshing controllers…".to_owned();
+                        self.mark_activity();
+                    }
+                    if ui
+                        .button(if self.state.emulation_enabled {
+                            "Disable"
+                        } else {
+                            "Enable"
+                        })
+                        .clicked()
+                    {
+                        self.set_emulation_enabled(!self.state.emulation_enabled);
+                    }
+                });
             });
         });
     }
+
     fn render_device_bar(&mut self, ui: &mut egui::Ui) {
         surface(ui, |ui| {
             ui.horizontal(|ui| {
@@ -879,45 +888,40 @@ Mapped from: {}",
         surface(ui, |ui| {
             let control = self.selected_control;
             let profile = self.current_profile();
-            ui.label(RichText::new(control.label()).size(18.0).strong());
-            ui.label(RichText::new(entry_label_for(&profile, control)).color(MUTED));
-            ui.add_space(10.0);
-
-            let learning = self.learning_control == Some(control);
             ui.horizontal(|ui| {
-                if ui
-                    .add_enabled(!learning, egui::Button::new("Learn"))
-                    .clicked()
-                {
-                    self.begin_learning(control);
-                }
-                if learning {
-                    ui.label(RichText::new("waiting for input…").color(ACCENT));
-                    if ui.button("Cancel").clicked() {
-                        self.learning_control = None;
-                        self.status = "Mapping capture canceled.".to_owned();
+                ui.vertical(|ui| {
+                    ui.label(RichText::new(control.label()).size(18.0).strong());
+                    ui.label(RichText::new(entry_label_for(&profile, control)).color(MUTED));
+                });
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if ui.button("Clear").clicked() {
+                        self.clear_mapping(control);
                     }
-                }
-                if ui.button("Clear").clicked() {
-                    self.clear_mapping(control);
-                }
-            });
-
-            ui.add_space(10.0);
-            ui.label(RichText::new("Detected now").strong());
-            let detected = active_input_labels(&self.runtime.raw_state);
-            if detected.is_empty() {
-                ui.label(RichText::new("No live input").color(MUTED));
-            } else {
-                ui.horizontal_wrapped(|ui| {
-                    for label in detected.iter().take(8) {
-                        status_chip(ui, label, ACCENT_SOFT, false);
+                    if ui.button("Learn").clicked() {
+                        self.begin_learning(control);
                     }
                 });
+            });
+
+            ui.add_space(8.0);
+            let learning = self.learning_control == Some(control);
+            let detected_label = primary_live_input_label(&self.runtime.raw_state);
+            ui.horizontal_wrapped(|ui| {
+                if learning {
+                    status_chip(ui, "learning", ACCENT, true);
+                }
+                ui.label(RichText::new(format!("detected: {detected_label}")).color(MUTED));
+            });
+            if learning {
+                ui.add_space(6.0);
+                if ui.button("Cancel learning").clicked() {
+                    self.learning_control = None;
+                    self.status = "Mapping capture canceled.".to_owned();
+                }
             }
 
             if control.is_axis() || control.is_trigger() {
-                ui.add_space(12.0);
+                ui.add_space(10.0);
                 let mut changed = false;
                 {
                     let mapping = self.current_profile_mut().entry_mut(control);
@@ -971,60 +975,56 @@ Mapped from: {}",
                 ui.add(egui::ProgressBar::new(progress).show_percentage());
             }
 
-            ui.add_space(12.0);
-            egui::CollapsingHeader::new("all mappings")
-                .default_open(true)
-                .show(ui, |ui| {
-                    let profile = self.current_profile();
-                    for control in OutputControl::BUTTONS
-                        .into_iter()
-                        .chain(OutputControl::ANALOGS)
-                    {
-                        let active = profile
-                            .entry(control)
-                            .map(|entry| {
-                                control_preview_active(control, entry, &self.runtime.raw_state)
-                            })
-                            .unwrap_or(false);
-                        let label = format!(
-                            "{}  ·  {}",
-                            control.label(),
-                            entry_label_for(&profile, control)
-                        );
-                        let text = if active {
-                            RichText::new(label).strong().color(SUCCESS)
-                        } else {
-                            RichText::new(label).color(TEXT)
-                        };
-                        if ui
-                            .selectable_label(self.selected_control == control, text)
-                            .clicked()
-                        {
-                            self.selected_control = control;
-                            self.mark_activity();
+            ui.add_space(10.0);
+            ui.label(RichText::new("Mappings").strong());
+            ui.add_space(6.0);
+            let controls: Vec<OutputControl> = OutputControl::BUTTONS
+                .into_iter()
+                .chain(OutputControl::ANALOGS)
+                .collect();
+            let split = (controls.len() + 1) / 2;
+            ui.columns(2, |columns| {
+                for (col_index, chunk) in controls.chunks(split).enumerate() {
+                    columns[col_index].vertical(|ui| {
+                        for control in chunk {
+                            let active = profile
+                                .entry(*control)
+                                .map(|entry| {
+                                    control_preview_active(*control, entry, &self.runtime.raw_state)
+                                })
+                                .unwrap_or(false);
+                            let label = format!(
+                                "{}  ·  {}",
+                                control.label(),
+                                entry_label_for(&profile, *control)
+                            );
+                            let rich = if active {
+                                RichText::new(label).strong().color(SUCCESS)
+                            } else {
+                                RichText::new(label).color(TEXT)
+                            };
+                            if ui
+                                .selectable_label(self.selected_control == *control, rich)
+                                .clicked()
+                            {
+                                self.selected_control = *control;
+                                self.mark_activity();
+                            }
                         }
-                    }
-                });
+                    });
+                }
+            });
         });
     }
-
 
     fn render_raw_inputs(&mut self, ui: &mut egui::Ui) {
         surface(ui, |ui| {
             ui.label(RichText::new("Live physical input").strong());
-            let detected = active_input_labels(&self.runtime.raw_state);
-            if !detected.is_empty() {
-                ui.horizontal_wrapped(|ui| {
-                    for label in detected.iter().take(12) {
-                        status_chip(ui, label, ACCENT_SOFT, false);
-                    }
-                });
-                ui.add_space(8.0);
-            }
+            ui.add_space(6.0);
             for (index, value) in self.runtime.raw_state.axes.iter().enumerate() {
                 let normalized = normalize_axis(*value);
                 ui.horizontal(|ui| {
-                    ui.label(format!("Axis {}", index + 1));
+                    ui.label(RichText::new(format!("Axis {}", index + 1)).size(12.0));
                     ui.add(
                         egui::ProgressBar::new(((normalized + 1.0) * 0.5).clamp(0.0, 1.0))
                             .desired_width(180.0),
@@ -1032,9 +1032,10 @@ Mapped from: {}",
                     ui.label(format!("{normalized:.2}"));
                 });
             }
+            ui.add_space(6.0);
             ui.horizontal_wrapped(|ui| {
                 for (index, pressed) in self.runtime.raw_state.buttons.iter().enumerate() {
-                    let text = format!("Button {}", index + 1);
+                    let text = format!("B{}", index + 1);
                     status_chip(
                         ui,
                         &text,
@@ -1048,7 +1049,7 @@ Mapped from: {}",
                 for (index, hat) in self.runtime.raw_state.hats.iter().enumerate() {
                     status_chip(
                         ui,
-                        &format!("Hat {} {}", index + 1, hat.label()),
+                        &format!("H{} {}", index + 1, hat.label()),
                         if *hat == crate::model::HatDirection::Centered {
                             SURFACE_MUTED
                         } else {
@@ -1063,7 +1064,7 @@ Mapped from: {}",
 
     fn render_settings(&mut self, ui: &mut egui::Ui) {
         surface(ui, |ui| {
-            ui.label(RichText::new("Settings").strong());
+            ui.label(RichText::new("Settings and updates").strong());
 
             let mut changed = false;
             changed |= ui
@@ -1071,6 +1072,9 @@ Mapped from: {}",
                 .changed();
             changed |= ui
                 .checkbox(&mut self.state.start_in_tray, "Start in tray")
+                .changed();
+            changed |= ui
+                .checkbox(&mut self.state.include_prereleases, "Include prereleases")
                 .changed();
             if changed {
                 self.mark_activity();
@@ -1105,81 +1109,65 @@ Mapped from: {}",
             });
 
             ui.add_space(8.0);
-            if ui
-                .add_enabled(
-                    !config::is_dev_build(),
-                    egui::Button::new(if self.state.startup_enabled {
-                        "Disable Windows startup"
-                    } else {
-                        "Enable Windows startup"
-                    }),
-                )
-                .clicked()
-            {
-                self.toggle_startup();
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .add_enabled(
+                        !config::is_dev_build(),
+                        egui::Button::new(if self.state.startup_enabled {
+                            "Disable Windows startup"
+                        } else {
+                            "Enable Windows startup"
+                        }),
+                    )
+                    .clicked()
+                {
+                    self.toggle_startup();
+                }
+
+                if ui
+                    .add_enabled(
+                        !config::is_dev_build() && self.update_rx.is_none(),
+                        egui::Button::new("Check updates"),
+                    )
+                    .clicked()
+                {
+                    self.save();
+                    self.start_update_check();
+                }
+                if ui
+                    .add_enabled(
+                        self.last_update_check
+                            .as_ref()
+                            .map(|check| {
+                                check.is_update_available && check.asset_download_url.is_some()
+                            })
+                            .unwrap_or(false),
+                        egui::Button::new("Install update"),
+                    )
+                    .clicked()
+                {
+                    self.install_update();
+                }
+            });
+
+            ui.add_space(6.0);
+            if config::is_dev_build() {
+                ui.label(RichText::new("Automatic update checks are disabled in dev builds.").color(MUTED));
+            } else if let Some(check) = &self.last_update_check {
+                ui.label(RichText::new(update_status(check)).color(MUTED));
+            } else {
+                ui.label(RichText::new("No update check yet.").color(MUTED));
             }
 
             ui.add_space(8.0);
-            egui::CollapsingHeader::new("updates")
-                .default_open(false)
-                .show(ui, |ui| {
-                    if ui
-                        .checkbox(&mut self.state.include_prereleases, "Include prereleases")
-                        .changed()
-                    {
-                        self.save();
-                        self.sync_tray();
-                    }
-                    ui.horizontal(|ui| {
-                        if ui
-                            .add_enabled(
-                                !config::is_dev_build() && self.update_rx.is_none(),
-                                egui::Button::new("Check now"),
-                            )
-                            .clicked()
-                        {
-                            self.save();
-                            self.start_update_check();
-                        }
-                        if ui
-                            .add_enabled(
-                                self.last_update_check
-                                    .as_ref()
-                                    .map(|check| {
-                                        check.is_update_available
-                                            && check.asset_download_url.is_some()
-                                    })
-                                    .unwrap_or(false),
-                                egui::Button::new("Install update"),
-                            )
-                            .clicked()
-                        {
-                            self.install_update();
-                        }
-                    });
-                });
-
-            egui::CollapsingHeader::new("portable data")
-                .default_open(false)
-                .show(ui, |ui| match config::state_path() {
-                    Ok(path) => {
-                        ui.label(
-                            RichText::new(path.display().to_string())
-                                .size(10.0)
-                                .color(MUTED),
-                        );
-                        ui.label(
-                            RichText::new(
-                                "profiles and settings live beside executable in .x360ce-data",
-                            )
-                            .size(11.0)
-                            .color(MUTED),
-                        );
-                    }
-                    Err(error) => {
-                        ui.label(RichText::new(error.to_string()).color(DANGER));
-                    }
-                });
+            match config::state_path() {
+                Ok(path) => {
+                    ui.label(RichText::new(path.display().to_string()).size(10.0).color(MUTED));
+                }
+                Err(error) => {
+                    ui.label(RichText::new(error.to_string()).color(DANGER));
+                }
+            }
         });
     }
 }
@@ -1195,119 +1183,135 @@ fn surface(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
 
 fn draw_controller_body(ui: &egui::Ui, rect: egui::Rect) {
     let painter = ui.painter();
-    let body = rect.shrink2(egui::vec2(rect.width() * 0.08, rect.height() * 0.11));
-    let dark = Color32::from_rgb(39, 44, 54);
-    let darker = Color32::from_rgb(29, 33, 42);
-    let light = Color32::from_rgb(74, 81, 94);
-    let shadow = Color32::from_rgba_unmultiplied(0, 0, 0, 24);
+    let body = rect.shrink2(egui::vec2(rect.width() * 0.06, rect.height() * 0.08));
+    let shell = Color32::from_rgb(42, 46, 55);
+    let shell_dark = Color32::from_rgb(28, 32, 39);
+    let shell_light = Color32::from_rgb(72, 78, 90);
+    let metal = Color32::from_rgb(232, 235, 239);
+    let metal_dark = Color32::from_rgb(205, 210, 216);
 
+    let core = egui::Rect::from_center_size(
+        egui::pos2(body.center().x, body.center().y + 2.0),
+        egui::vec2(body.width() * 0.72, body.height() * 0.70),
+    );
+    painter.rect_filled(core, 84, shell);
     painter.circle_filled(
-        egui::pos2(body.left() + body.width() * 0.12, body.bottom() - 28.0),
-        72.0,
-        shadow,
+        egui::pos2(core.left() + 48.0, core.bottom() - 10.0),
+        84.0,
+        shell,
     );
     painter.circle_filled(
-        egui::pos2(body.right() - body.width() * 0.12, body.bottom() - 28.0),
-        72.0,
-        shadow,
+        egui::pos2(core.right() - 48.0, core.bottom() - 10.0),
+        84.0,
+        shell,
     );
+    painter.circle_stroke(core, 84, Stroke::new(2.0, shell_light));
 
-    painter.rect_filled(body, 82, dark);
-    painter.circle_filled(
-        egui::pos2(body.left() + body.width() * 0.12, body.bottom() - 18.0),
-        80.0,
-        dark,
+    let highlight = egui::Rect::from_center_size(
+        egui::pos2(core.center().x, core.top() + 38.0),
+        egui::vec2(core.width() * 0.34, 18.0),
     );
-    painter.circle_filled(
-        egui::pos2(body.right() - body.width() * 0.12, body.bottom() - 18.0),
-        80.0,
-        dark,
-    );
+    painter.rect_filled(highlight, 9, shell_light);
     painter.rect_filled(
         egui::Rect::from_center_size(
-            egui::pos2(body.center().x, body.top() + 30.0),
-            egui::vec2(body.width() * 0.38, 18.0),
-        ),
-        9,
-        light,
-    );
-    painter.rect_filled(
-        egui::Rect::from_center_size(
-            egui::pos2(body.left() + body.width() * 0.25, body.top() + 10.0),
-            egui::vec2(64.0, 16.0),
+            egui::pos2(core.left() + core.width() * 0.24, core.top() + 8.0),
+            egui::vec2(74.0, 16.0),
         ),
         8,
-        darker,
+        shell_dark,
     );
     painter.rect_filled(
         egui::Rect::from_center_size(
-            egui::pos2(body.right() - body.width() * 0.25, body.top() + 10.0),
-            egui::vec2(64.0, 16.0),
+            egui::pos2(core.right() - core.width() * 0.24, core.top() + 8.0),
+            egui::vec2(74.0, 16.0),
         ),
         8,
-        darker,
+        shell_dark,
     );
 
-    for (center, r_outer, r_inner) in [
-        (egui::pos2(body.left() + body.width() * 0.37, body.bottom() - 76.0), 28.0, 17.0),
-        (egui::pos2(body.right() - body.width() * 0.37, body.bottom() - 76.0), 28.0, 17.0),
-    ] {
-        painter.circle_filled(center, r_outer, Color32::from_rgb(237, 239, 241));
-        painter.circle_filled(center, r_inner, Color32::from_rgb(220, 224, 228));
+    let left_stick = egui::pos2(core.left() + core.width() * 0.34, core.bottom() - 70.0);
+    let right_stick = egui::pos2(core.right() - core.width() * 0.34, core.bottom() - 70.0);
+    for center in [left_stick, right_stick] {
+        painter.circle_filled(center, 30.0, metal);
+        painter.circle_filled(center, 18.0, metal_dark);
+        painter.circle_stroke(center, 30.0, Stroke::new(1.5, Color32::WHITE));
     }
 
-    let dpad_center = egui::pos2(body.left() + body.width() * 0.23, body.center().y + 6.0);
+    let dpad_center = egui::pos2(core.left() + core.width() * 0.21, core.center().y + 12.0);
     painter.rect_filled(
-        egui::Rect::from_center_size(dpad_center, egui::vec2(76.0, 24.0)),
-        10,
-        Color32::from_rgb(225, 228, 232),
+        egui::Rect::from_center_size(dpad_center, egui::vec2(84.0, 24.0)),
+        11,
+        metal,
     );
     painter.rect_filled(
-        egui::Rect::from_center_size(dpad_center, egui::vec2(24.0, 76.0)),
-        10,
-        Color32::from_rgb(225, 228, 232),
+        egui::Rect::from_center_size(dpad_center, egui::vec2(24.0, 84.0)),
+        11,
+        metal,
+    );
+    painter.rect_stroke(
+        egui::Rect::from_center_size(dpad_center, egui::vec2(84.0, 24.0)),
+        11,
+        Stroke::new(1.0, metal_dark),
+        egui::StrokeKind::Middle,
+    );
+    painter.rect_stroke(
+        egui::Rect::from_center_size(dpad_center, egui::vec2(24.0, 84.0)),
+        11,
+        Stroke::new(1.0, metal_dark),
+        egui::StrokeKind::Middle,
     );
 
-    for (center, color) in [
-        (egui::pos2(body.right() - body.width() * 0.17, body.center().y - 18.0), Color32::from_rgb(235, 196, 34)),
-        (egui::pos2(body.right() - body.width() * 0.11, body.center().y + 20.0), Color32::from_rgb(224, 82, 82)),
-        (egui::pos2(body.right() - body.width() * 0.17, body.center().y + 58.0), Color32::from_rgb(85, 165, 38)),
-        (egui::pos2(body.right() - body.width() * 0.23, body.center().y + 20.0), Color32::from_rgb(62, 120, 222)),
-    ] {
+    let buttons = [
+        (egui::pos2(core.right() - core.width() * 0.18, core.center().y - 24.0), Color32::from_rgb(232, 192, 48)),
+        (egui::pos2(core.right() - core.width() * 0.11, core.center().y + 18.0), Color32::from_rgb(224, 90, 84)),
+        (egui::pos2(core.right() - core.width() * 0.18, core.center().y + 60.0), Color32::from_rgb(91, 165, 58)),
+        (egui::pos2(core.right() - core.width() * 0.25, core.center().y + 18.0), Color32::from_rgb(66, 121, 220)),
+    ];
+    for (center, color) in buttons {
         painter.circle_filled(center, 20.0, color);
+        painter.circle_stroke(center, 20.0, Stroke::new(1.0, Color32::WHITE));
     }
 
     painter.circle_filled(
-        egui::pos2(body.center().x, body.center().y - 12.0),
+        egui::pos2(core.center().x, core.center().y - 18.0),
         18.0,
-        Color32::from_rgb(235, 238, 241),
+        metal,
+    );
+    painter.circle_filled(
+        egui::pos2(core.center().x - 36.0, core.center().y + 4.0),
+        16.0,
+        metal,
+    );
+    painter.circle_filled(
+        egui::pos2(core.center().x + 36.0, core.center().y + 4.0),
+        16.0,
+        metal,
     );
 }
 
-
 fn controller_points() -> [(OutputControl, f32, f32); 21] {
     [
-        (OutputControl::LeftTrigger, 0.19, 0.15),
-        (OutputControl::RightTrigger, 0.81, 0.15),
-        (OutputControl::LeftShoulder, 0.27, 0.20),
-        (OutputControl::RightShoulder, 0.73, 0.20),
-        (OutputControl::Guide, 0.50, 0.42),
-        (OutputControl::Back, 0.43, 0.47),
-        (OutputControl::Start, 0.57, 0.47),
-        (OutputControl::Y, 0.76, 0.43),
+        (OutputControl::LeftTrigger, 0.21, 0.17),
+        (OutputControl::RightTrigger, 0.79, 0.17),
+        (OutputControl::LeftShoulder, 0.29, 0.21),
+        (OutputControl::RightShoulder, 0.71, 0.21),
+        (OutputControl::Guide, 0.50, 0.40),
+        (OutputControl::Back, 0.43, 0.46),
+        (OutputControl::Start, 0.57, 0.46),
+        (OutputControl::Y, 0.75, 0.43),
         (OutputControl::B, 0.82, 0.53),
-        (OutputControl::A, 0.76, 0.63),
-        (OutputControl::X, 0.70, 0.53),
+        (OutputControl::A, 0.75, 0.63),
+        (OutputControl::X, 0.68, 0.53),
         (OutputControl::DpadUp, 0.24, 0.50),
         (OutputControl::DpadRight, 0.29, 0.57),
         (OutputControl::DpadDown, 0.24, 0.64),
         (OutputControl::DpadLeft, 0.19, 0.57),
-        (OutputControl::LeftStickX, 0.31, 0.79),
-        (OutputControl::LeftStickY, 0.38, 0.79),
-        (OutputControl::RightStickX, 0.58, 0.79),
-        (OutputControl::RightStickY, 0.65, 0.79),
-        (OutputControl::LeftThumb, 0.345, 0.88),
-        (OutputControl::RightThumb, 0.615, 0.88),
+        (OutputControl::LeftStickX, 0.31, 0.76),
+        (OutputControl::LeftStickY, 0.38, 0.76),
+        (OutputControl::RightStickX, 0.58, 0.76),
+        (OutputControl::RightStickY, 0.65, 0.76),
+        (OutputControl::LeftThumb, 0.345, 0.86),
+        (OutputControl::RightThumb, 0.615, 0.86),
     ]
 }
 
@@ -1350,47 +1354,42 @@ fn ui_root(app: &mut X360ceApp, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            ui.add_space(18.0);
+            ui.add_space(14.0);
             ui.horizontal(|ui| {
-                ui.add_space(22.0);
+                ui.add_space(18.0);
                 ui.vertical(|ui| {
-                    ui.set_max_width((ui.available_width() - 22.0).max(760.0));
+                    ui.set_max_width((ui.available_width() - 18.0).max(760.0));
                     app.render_header(ui);
-                    ui.add_space(14.0);
+                    ui.add_space(10.0);
                     app.render_status(ui);
-                    ui.add_space(14.0);
+                    ui.add_space(10.0);
                     ui.columns(2, |columns| {
                         let (left, right) = columns.split_at_mut(1);
                         left[0].set_width(left[0].available_width());
                         app.render_controller(&mut left[0]);
                         right[0].vertical(|ui| {
                             app.render_device_bar(ui);
-                            ui.add_space(12.0);
+                            ui.add_space(10.0);
                             app.render_mapping_editor(ui);
-                            ui.add_space(12.0);
+                            ui.add_space(10.0);
+                            app.render_raw_inputs(ui);
+                            ui.add_space(10.0);
                             app.render_settings(ui);
                         });
                     });
-                    ui.add_space(12.0);
-                    egui::CollapsingHeader::new("raw input monitor")
-                        .default_open(false)
-                        .show(ui, |ui| {
-                            app.render_raw_inputs(ui);
-                        });
-                    ui.add_space(18.0);
+                    ui.add_space(14.0);
                 });
             });
         });
     app.render_countdown(ui.ctx());
 }
 
-
 fn status_chip(ui: &mut egui::Ui, text: &str, fill: Color32, strong: bool) {
     egui::Frame::new()
         .fill(fill)
         .stroke(Stroke::NONE)
-        .corner_radius(16)
-        .inner_margin(egui::Margin::symmetric(10, 5))
+        .corner_radius(14)
+        .inner_margin(egui::Margin::symmetric(9, 4))
         .show(ui, |ui| {
             let text_color = if strong && fill != SURFACE_MUTED && fill != ACCENT_SOFT {
                 Color32::WHITE
@@ -1411,28 +1410,30 @@ fn control_preview_active(control: OutputControl, entry: &crate::model::MappingE
     }
 }
 
-fn active_input_labels(raw: &RawState) -> Vec<String> {
-    let mut labels = Vec::new();
+fn primary_live_input_label(raw: &RawState) -> String {
     for (index, pressed) in raw.buttons.iter().enumerate() {
         if *pressed {
-            labels.push(format!("Button {}", index + 1));
+            return format!("Button {}", index + 1);
         }
     }
     for (index, value) in raw.axes.iter().enumerate() {
         let normalized = normalize_axis(*value);
         if normalized >= 0.18 {
-            labels.push(format!("Axis {} + {:.2}", index + 1, normalized));
-        } else if normalized <= -0.18 {
-            labels.push(format!("Axis {} - {:.2}", index + 1, normalized.abs()));
+            return format!("Axis {} +", index + 1);
+        }
+        if normalized <= -0.18 {
+            return format!("Axis {} -", index + 1);
         }
     }
     for (index, hat) in raw.hats.iter().enumerate() {
         if *hat != crate::model::HatDirection::Centered {
-            labels.push(format!("Hat {} {}", index + 1, hat.label()));
+            return format!("Hat {} {}", index + 1, hat.label());
         }
     }
-    labels
+    "none".to_owned()
 }
+
+
 
 fn entry_label_for(profile: &ControllerProfile, control: OutputControl) -> String {
     profile
