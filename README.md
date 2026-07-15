@@ -360,7 +360,6 @@ x360ce/
 │  ├─ dev.ps1
 │  ├─ dev.sh
 │  ├─ dev-win.ps1
-│  ├─ install-mutagen-windows.ps1
 │  ├─ release.ps1
 │  ├─ setup-mutagen-wsl-dev.cmd
 │  └─ setup-mutagen-wsl-dev.ps1
@@ -548,23 +547,7 @@ Keep source in WSL and mirror it to Windows with Mutagen. Run from Windows Power
 scripts\setup-mutagen-wsl-dev.ps1
 ```
 
-Setup auto-installs latest official Mutagen Windows archive into `%LOCALAPPDATA%\Programs\Mutagen` when `mutagen.exe` is missing, adds install directory to user `PATH`, starts daemon, and creates sync session. Standalone installer:
-
-```powershell
-scripts\install-mutagen-windows.ps1
-```
-
-Pinned install or upgrade:
-
-```powershell
-scripts\install-mutagen-windows.ps1 -Version 0.18.1 -Force
-```
-
-Disable automatic install:
-
-```powershell
-scripts\setup-mutagen-wsl-dev.ps1 -InstallMutagenIfMissing $false
-```
+Setup expects `mutagen.exe` on Windows `PATH`, starts the daemon, and creates the sync session. It does not download or install Mutagen.
 
 Then run Windows-side watcher:
 

@@ -3,10 +3,7 @@ param(
     [string]$WindowsProjectPath = "D:\github\rozsazoltan\x360ce",
     [string]$SourceProjectPath = "",
     [ValidateSet("one-way-replica", "two-way-safe")]
-    [string]$SyncMode = "one-way-replica",
-    [bool]$InstallMutagenIfMissing = $true,
-    [string]$MutagenVersion = "latest",
-    [string]$MutagenInstallDirectory = (Join-Path $env:LOCALAPPDATA "Programs\Mutagen")
+    [string]$SyncMode = "one-way-replica"
 )
 
 $ErrorActionPreference = "Stop"
@@ -38,7 +35,7 @@ function Normalize-NativePath {
         }
     }
 
-    return $NormalizedPath
+    return [System.IO.Path]::GetFullPath($NormalizedPath)
 }
 
 function Get-WorkspaceRoot {
@@ -56,32 +53,49 @@ function Test-IsWslUncPath {
     return $NormalizedPath -match '^\\\\(wsl\$|wsl\.localhost)\\[^\\]+\\'
 }
 
-function Resolve-MutagenExecutable {
-    $Command = Get-Command mutagen -ErrorAction SilentlyContinue
-    if ($Command) {
-        return $Command.Source
+$MutagenCommand = Get-Command mutagen -ErrorAction SilentlyContinue
+if (-not $MutagenCommand) {
+    throw "Mutagen was not found on PATH. Install mutagen.exe on Windows first, then reopen PowerShell."
+}
+
+$MutagenExe = $MutagenCommand.Source
+
+function Invoke-Mutagen {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments,
+        [switch]$CaptureOutput
+    )
+
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    try {
+        # Windows PowerShell can wrap native stderr as NativeCommandError even when
+        # Mutagen exits successfully. Capture both streams and trust exit code.
+        $ErrorActionPreference = "Continue"
+        $CommandOutput = & $MutagenExe @Arguments 2>&1
+        $ExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
     }
 
-    $ExpectedExe = Join-Path $MutagenInstallDirectory "mutagen.exe"
-    if (Test-Path -LiteralPath $ExpectedExe) {
-        return $ExpectedExe
+    $OutputLines = @($CommandOutput | ForEach-Object { $_.ToString() })
+
+    if ($ExitCode -ne 0) {
+        $CommandText = "mutagen " + ($Arguments -join " ")
+        $Details = ($OutputLines -join [Environment]::NewLine).Trim()
+
+        if ($Details) {
+            throw "$CommandText failed with exit code $ExitCode.`n$Details"
+        }
+
+        throw "$CommandText failed with exit code $ExitCode."
     }
 
-    if (-not $InstallMutagenIfMissing) {
-        throw "Mutagen was not found on PATH. Run scripts\install-mutagen-windows.ps1 or enable automatic installation."
+    if ($CaptureOutput) {
+        return $OutputLines
     }
 
-    $Installer = Join-Path $PSScriptRoot "install-mutagen-windows.ps1"
-    if (-not (Test-Path -LiteralPath $Installer)) {
-        throw "Mutagen installer script was not found: $Installer"
-    }
-
-    & $Installer -Version $MutagenVersion -InstallDirectory $MutagenInstallDirectory | Out-Host
-    if (-not (Test-Path -LiteralPath $ExpectedExe)) {
-        throw "Mutagen installer completed, but executable was not found: $ExpectedExe"
-    }
-
-    return $ExpectedExe
+    $OutputLines | ForEach-Object { Write-Host $_ }
 }
 
 if ([string]::IsNullOrWhiteSpace($SourceProjectPath)) {
@@ -90,7 +104,6 @@ if ([string]::IsNullOrWhiteSpace($SourceProjectPath)) {
 
 $SourceProjectPath = Normalize-NativePath $SourceProjectPath
 $WindowsProjectPath = Normalize-NativePath $WindowsProjectPath
-$MutagenExe = Resolve-MutagenExecutable
 
 if ([string]::IsNullOrWhiteSpace($SourceProjectPath)) {
     throw "Source project path is required."
@@ -117,7 +130,7 @@ if ($SourceFullPath.TrimEnd('\') -ieq $TargetFullPath.TrimEnd('\')) {
 
 Write-Host "x360ce Mutagen WSL -> Windows development setup"
 Write-Host ""
-Write-Host "Mutagen:         $MutagenExe"
+Write-Host "Mutagen:          $MutagenExe"
 Write-Host "Source workspace: $SourceFullPath"
 Write-Host "Windows mirror:   $TargetFullPath"
 Write-Host "Mutagen session:  $SessionName"
@@ -126,30 +139,33 @@ Write-Host ""
 
 New-Item -ItemType Directory -Force -Path $TargetFullPath | Out-Null
 
-& $MutagenExe daemon start
+Invoke-Mutagen -Arguments @("daemon", "start")
 
-$SessionList = & $MutagenExe sync list --long 2>$null
+$SessionList = Invoke-Mutagen -Arguments @("sync", "list", "--long") -CaptureOutput
 $ExistingSession = $SessionList | Select-String -SimpleMatch "Name: $SessionName"
+
 if ($ExistingSession) {
     Write-Host "Mutagen session '$SessionName' already exists."
     Write-Host "Use 'mutagen sync monitor $SessionName' to watch it, or terminate it first if you want to recreate it."
 } else {
-    & $MutagenExe sync create `
-        --name $SessionName `
-        --sync-mode $SyncMode `
-        --ignore-vcs `
-        --ignore ".cache" `
-        --ignore "target" `
-        --ignore "dist" `
-        --ignore ".x360ce-data" `
-        --ignore "*.zip" `
-        --ignore "*.exe" `
-        --ignore "*.pdb" `
-        $SourceFullPath `
+    Invoke-Mutagen -Arguments @(
+        "sync", "create",
+        "--name", $SessionName,
+        "--sync-mode", $SyncMode,
+        "--ignore-vcs",
+        "--ignore", ".cache",
+        "--ignore", "target",
+        "--ignore", "dist",
+        "--ignore", ".x360ce-data",
+        "--ignore", "*.zip",
+        "--ignore", "*.exe",
+        "--ignore", "*.pdb",
+        $SourceFullPath,
         $TargetFullPath
+    )
 }
 
-& $MutagenExe sync flush $SessionName
+Invoke-Mutagen -Arguments @("sync", "flush", $SessionName)
 
 Write-Host ""
 Write-Host "x360ce Windows dev mirror ready."
