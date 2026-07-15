@@ -620,7 +620,7 @@ impl X360ceApp {
 }
 
 impl eframe::App for X360ceApp {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if ctx.input(|input| input.viewport().close_requested()) && !self.quit_requested {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.hide_window(ctx);
@@ -635,13 +635,15 @@ impl eframe::App for X360ceApp {
         self.poll_update_check();
         self.sync_tray();
 
-        ui_root(self, ctx, frame);
-
         ctx.request_repaint_after(if self.window_visible {
             VISIBLE_POLL
         } else {
             HIDDEN_POLL
         });
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        ui_root(self, ui, frame);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -1208,45 +1210,43 @@ fn normalize_axis(value: i16) -> f32 {
     }
 }
 
-fn ui_root(app: &mut X360ceApp, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-    egui::CentralPanel::default().show(ctx, |ui| {
-        ui.painter().rect_filled(ui.max_rect(), 0.0, BACKGROUND);
-        egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.add_space(18.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(22.0);
-                    ui.vertical(|ui| {
-                        ui.set_max_width((ui.available_width() - 22.0).max(760.0));
-                        app.render_header(ui);
-                        ui.add_space(14.0);
-                        app.render_status(ui);
-                        ui.add_space(14.0);
-                        ui.columns(2, |columns| {
-                            let (left, right) = columns.split_at_mut(1);
-                            left[0].set_width(left[0].available_width());
-                            app.render_controller(&mut left[0]);
-                            right[0].vertical(|ui| {
-                                app.render_device_bar(ui);
-                                ui.add_space(12.0);
-                                app.render_mapping_editor(ui);
-                                ui.add_space(12.0);
-                                app.render_settings(ui);
-                            });
+fn ui_root(app: &mut X360ceApp, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    ui.painter().rect_filled(ui.max_rect(), 0.0, BACKGROUND);
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            ui.add_space(18.0);
+            ui.horizontal(|ui| {
+                ui.add_space(22.0);
+                ui.vertical(|ui| {
+                    ui.set_max_width((ui.available_width() - 22.0).max(760.0));
+                    app.render_header(ui);
+                    ui.add_space(14.0);
+                    app.render_status(ui);
+                    ui.add_space(14.0);
+                    ui.columns(2, |columns| {
+                        let (left, right) = columns.split_at_mut(1);
+                        left[0].set_width(left[0].available_width());
+                        app.render_controller(&mut left[0]);
+                        right[0].vertical(|ui| {
+                            app.render_device_bar(ui);
+                            ui.add_space(12.0);
+                            app.render_mapping_editor(ui);
+                            ui.add_space(12.0);
+                            app.render_settings(ui);
                         });
-                        ui.add_space(12.0);
-                        egui::CollapsingHeader::new("raw input monitor")
-                            .default_open(false)
-                            .show(ui, |ui| {
-                                app.render_raw_inputs(ui);
-                            });
-                        ui.add_space(18.0);
                     });
+                    ui.add_space(12.0);
+                    egui::CollapsingHeader::new("raw input monitor")
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            app.render_raw_inputs(ui);
+                        });
+                    ui.add_space(18.0);
                 });
             });
-        app.render_countdown(ctx);
-    });
+        });
+    app.render_countdown(ui.ctx());
 }
 
 fn status_chip(ui: &mut egui::Ui, text: &str, fill: Color32, strong: bool) {
