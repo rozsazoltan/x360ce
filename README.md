@@ -153,7 +153,7 @@ assets/x360ce-tray.png
 assets/x360ce.ico
 ```
 
-Icon uses minimal controller silhouette with four face buttons. Same visual identity is used for executable, title bar, taskbar, and tray.
+Icon uses a clean controller mark with balanced proportions and four face buttons. Same visual identity is used for executable, title bar, taskbar, and tray.
 
 ## Get started
 

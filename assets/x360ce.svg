@@ -1,14 +1,58 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
-  <title id="title">x360ce controller icon</title>
-  <desc id="desc">Minimal dark game controller with colored face buttons</desc>
-  <path fill="#2B2F38" d="M150 132c-52 0-92 33-111 86L9 330c-14 52 46 84 79 42l53-67h230l53 67c33 42 93 10 79-42l-30-112c-19-53-59-86-111-86H150z"/>
-  <rect x="118" y="210" width="108" height="28" rx="14" fill="#F5F7FA"/>
-  <rect x="158" y="170" width="28" height="108" rx="14" fill="#F5F7FA"/>
-  <circle cx="355" cy="190" r="19" fill="#F4C542"/>
-  <circle cx="398" cy="233" r="19" fill="#D9534F"/>
-  <circle cx="355" cy="276" r="19" fill="#5CB85C"/>
-  <circle cx="312" cy="233" r="19" fill="#4A90E2"/>
-  <circle cx="217" cy="290" r="31" fill="#15181D"/>
-  <circle cx="295" cy="290" r="31" fill="#15181D"/>
-  <circle cx="256" cy="208" r="18" fill="#737B8C"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="body" x1="84" y1="108" x2="432" y2="420" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3A3E47"/>
+      <stop offset="0.45" stop-color="#242831"/>
+      <stop offset="1" stop-color="#11151D"/>
+    </linearGradient>
+    <linearGradient id="top" x1="256" y1="102" x2="256" y2="184" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#545B66" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#545B66" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="stick" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(0 0) scale(54)">
+      <stop offset="0" stop-color="#4E5562"/>
+      <stop offset="1" stop-color="#171B22"/>
+    </radialGradient>
+    <filter id="shadow" x="16" y="40" width="480" height="432" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#020617" flood-opacity="0.24"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#shadow)">
+    <path d="M141 129C181 108 223 107 256 119C288 130 331 130 371 118C411 106 448 116 469 145C491 175 491 218 477 255L447 332C441 349 426 360 409 360C394 360 379 351 372 336L342 274C336 261 324 252 310 252H202C188 252 176 261 170 274L140 336C133 351 118 360 103 360C86 360 71 349 65 332L35 255C21 218 21 175 43 145C64 117 101 107 141 129Z" fill="url(#body)"/>
+    <path d="M141 129C181 108 223 107 256 119C288 130 331 130 371 118C411 106 448 116 469 145" stroke="#A3AAB5" stroke-opacity="0.24" stroke-width="10" stroke-linecap="round"/>
+    <path d="M110 152C163 120 219 119 256 131C291 142 336 143 399 124C420 118 444 120 462 133C478 145 488 164 488 184C488 157 480 136 469 121C448 93 410 82 370 94C331 105 288 105 256 94C223 82 181 83 141 104C101 82 63 93 42 121C31 136 24 157 24 184C24 164 34 145 50 133C68 120 92 118 110 152Z" fill="url(#top)"/>
+
+    <g>
+      <rect x="95" y="163" width="102" height="36" rx="12" fill="#D9DDE4"/>
+      <rect x="128" y="130" width="36" height="102" rx="12" fill="#D9DDE4"/>
+      <rect x="102" y="170" width="88" height="22" rx="8" fill="#F3F4F6" fill-opacity="0.55"/>
+      <rect x="135" y="137" width="22" height="88" rx="8" fill="#F3F4F6" fill-opacity="0.55"/>
+    </g>
+
+    <circle cx="177" cy="303" r="49" fill="#1B2028"/>
+    <circle cx="177" cy="303" r="34" fill="url(#stick)"/>
+    <circle cx="177" cy="303" r="25" fill="#606775" fill-opacity="0.22"/>
+
+    <circle cx="335" cy="303" r="49" fill="#1B2028"/>
+    <circle cx="335" cy="303" r="34" fill="url(#stick)"/>
+    <circle cx="335" cy="303" r="25" fill="#606775" fill-opacity="0.22"/>
+
+    <circle cx="256" cy="182" r="24" fill="#11161E"/>
+    <circle cx="256" cy="182" r="18" fill="#2B313B"/>
+    <circle cx="212" cy="214" r="16" fill="#11161E"/>
+    <path d="M206 214H218" stroke="#9AA2AF" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="300" cy="214" r="16" fill="#11161E"/>
+    <path d="M295 210H305M295 214H305M295 218H305" stroke="#9AA2AF" stroke-width="3" stroke-linecap="round"/>
+    <rect x="244" y="236" width="24" height="10" rx="5" fill="#C9CDD4"/>
+
+    <circle cx="395" cy="150" r="24" fill="#EAB308"/>
+    <circle cx="395" cy="150" r="17" fill="#FCD34D" fill-opacity="0.45"/>
+    <circle cx="364" cy="191" r="24" fill="#1266F1"/>
+    <circle cx="364" cy="191" r="17" fill="#7DB5FF" fill-opacity="0.38"/>
+    <circle cx="426" cy="191" r="24" fill="#EF4444"/>
+    <circle cx="426" cy="191" r="17" fill="#FF9C9C" fill-opacity="0.35"/>
+    <circle cx="395" cy="232" r="24" fill="#65A30D"/>
+    <circle cx="395" cy="232" r="17" fill="#BEF264" fill-opacity="0.38"/>
+  </g>
 </svg>
