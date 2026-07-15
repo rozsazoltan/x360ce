@@ -795,12 +795,16 @@ impl X360ceApp {
         });
     }
 
+
     fn render_controller(&mut self, ui: &mut egui::Ui) {
         surface(ui, |ui| {
             ui.label(RichText::new("Virtual Xbox 360 layout").strong());
-            ui.label(RichText::new("Click control, then map physical input.").color(MUTED));
+            ui.label(
+                RichText::new("Click Xbox control, then Learn and press your real input.")
+                    .color(MUTED),
+            );
             ui.add_space(8.0);
-            let desired = egui::vec2(ui.available_width(), 360.0);
+            let desired = egui::vec2(ui.available_width(), 390.0);
             let (rect, _) = ui.allocate_exact_size(desired, Sense::hover());
             draw_controller_body(ui, rect);
 
@@ -810,10 +814,17 @@ impl X360ceApp {
                     rect.left() + rect.width() * x,
                     rect.top() + rect.height() * y,
                 );
-                let radius = if control.is_axis() { 23.0 } else { 16.0 };
+                let radius = match control {
+                    OutputControl::LeftTrigger | OutputControl::RightTrigger => 18.0,
+                    OutputControl::LeftStickX
+                    | OutputControl::LeftStickY
+                    | OutputControl::RightStickX
+                    | OutputControl::RightStickY => 24.0,
+                    _ => 16.0,
+                };
                 let hit = egui::Rect::from_center_size(
                     center,
-                    egui::vec2(radius * 2.0, radius * 2.0),
+                    egui::vec2(radius * 2.3, radius * 2.3),
                 );
                 let response = ui.interact(
                     hit,
@@ -827,30 +838,25 @@ impl X360ceApp {
 
                 let entry = profile.entry(control);
                 let active = entry
-                    .map(|entry| {
-                        if control.is_trigger() {
-                            mapper::trigger_preview(entry, &self.runtime.raw_state) > 0.15
-                        } else if control.is_axis() {
-                            mapper::axis_preview(entry, &self.runtime.raw_state).abs() > 0.15
-                        } else {
-                            mapper::binding_pressed(entry, &self.runtime.raw_state)
-                        }
-                    })
+                    .map(|entry| control_preview_active(control, entry, &self.runtime.raw_state))
                     .unwrap_or(false);
                 let selected = self.selected_control == control;
-                let color = if active {
+                let fill = if active {
                     SUCCESS
                 } else if selected {
                     ACCENT
                 } else {
-                    SURFACE
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 232)
                 };
-                ui.painter().circle_filled(center, radius, color);
-                ui.painter().circle_stroke(
-                    center,
-                    radius,
-                    Stroke::new(if selected { 3.0 } else { 1.0 }, BORDER),
-                );
+                let stroke = if selected {
+                    Stroke::new(3.0, Color32::WHITE)
+                } else if active {
+                    Stroke::new(2.0, Color32::from_rgb(220, 247, 231))
+                } else {
+                    Stroke::new(1.0, Color32::from_rgb(198, 203, 213))
+                };
+                ui.painter().circle_filled(center, radius, fill);
+                ui.painter().circle_stroke(center, radius, stroke);
                 ui.painter().text(
                     center,
                     Align2::CENTER_CENTER,
@@ -858,10 +864,16 @@ impl X360ceApp {
                     FontId::proportional(if control.is_axis() { 9.0 } else { 11.0 }),
                     if active || selected { Color32::WHITE } else { TEXT },
                 );
-                response.on_hover_text(control.label());
+                response.on_hover_text(format!(
+                    "{}
+Mapped from: {}",
+                    control.label(),
+                    entry_label_for(&profile, control)
+                ));
             }
         });
     }
+
 
     fn render_mapping_editor(&mut self, ui: &mut egui::Ui) {
         surface(ui, |ui| {
@@ -890,6 +902,19 @@ impl X360ceApp {
                     self.clear_mapping(control);
                 }
             });
+
+            ui.add_space(10.0);
+            ui.label(RichText::new("Detected now").strong());
+            let detected = active_input_labels(&self.runtime.raw_state);
+            if detected.is_empty() {
+                ui.label(RichText::new("No live input").color(MUTED));
+            } else {
+                ui.horizontal_wrapped(|ui| {
+                    for label in detected.iter().take(8) {
+                        status_chip(ui, label, ACCENT_SOFT, false);
+                    }
+                });
+            }
 
             if control.is_axis() || control.is_trigger() {
                 ui.add_space(12.0);
@@ -955,15 +980,24 @@ impl X360ceApp {
                         .into_iter()
                         .chain(OutputControl::ANALOGS)
                     {
+                        let active = profile
+                            .entry(control)
+                            .map(|entry| {
+                                control_preview_active(control, entry, &self.runtime.raw_state)
+                            })
+                            .unwrap_or(false);
+                        let label = format!(
+                            "{}  ·  {}",
+                            control.label(),
+                            entry_label_for(&profile, control)
+                        );
+                        let text = if active {
+                            RichText::new(label).strong().color(SUCCESS)
+                        } else {
+                            RichText::new(label).color(TEXT)
+                        };
                         if ui
-                            .selectable_label(
-                                self.selected_control == control,
-                                format!(
-                                    "{}  ·  {}",
-                                    control.label(),
-                                    entry_label_for(&profile, control)
-                                ),
-                            )
+                            .selectable_label(self.selected_control == control, text)
                             .clicked()
                         {
                             self.selected_control = control;
@@ -973,23 +1007,55 @@ impl X360ceApp {
                 });
         });
     }
+
+
     fn render_raw_inputs(&mut self, ui: &mut egui::Ui) {
         surface(ui, |ui| {
             ui.label(RichText::new("Live physical input").strong());
-            ui.horizontal_wrapped(|ui| {
-                for (index, value) in self.runtime.raw_state.axes.iter().enumerate() {
-                    ui.label(format!("A{}: {:.2}", index + 1, normalize_axis(*value)));
-                }
-            });
+            let detected = active_input_labels(&self.runtime.raw_state);
+            if !detected.is_empty() {
+                ui.horizontal_wrapped(|ui| {
+                    for label in detected.iter().take(12) {
+                        status_chip(ui, label, ACCENT_SOFT, false);
+                    }
+                });
+                ui.add_space(8.0);
+            }
+            for (index, value) in self.runtime.raw_state.axes.iter().enumerate() {
+                let normalized = normalize_axis(*value);
+                ui.horizontal(|ui| {
+                    ui.label(format!("Axis {}", index + 1));
+                    ui.add(
+                        egui::ProgressBar::new(((normalized + 1.0) * 0.5).clamp(0.0, 1.0))
+                            .desired_width(180.0),
+                    );
+                    ui.label(format!("{normalized:.2}"));
+                });
+            }
             ui.horizontal_wrapped(|ui| {
                 for (index, pressed) in self.runtime.raw_state.buttons.iter().enumerate() {
-                    let text = format!("B{}", index + 1);
-                    ui.label(
-                        RichText::new(text).color(if *pressed { SUCCESS } else { MUTED }),
+                    let text = format!("Button {}", index + 1);
+                    status_chip(
+                        ui,
+                        &text,
+                        if *pressed { SUCCESS } else { SURFACE_MUTED },
+                        *pressed,
                     );
                 }
+            });
+            ui.add_space(6.0);
+            ui.horizontal_wrapped(|ui| {
                 for (index, hat) in self.runtime.raw_state.hats.iter().enumerate() {
-                    ui.label(format!("H{}: {}", index + 1, hat.label()));
+                    status_chip(
+                        ui,
+                        &format!("Hat {} {}", index + 1, hat.label()),
+                        if *hat == crate::model::HatDirection::Centered {
+                            SURFACE_MUTED
+                        } else {
+                            WARNING
+                        },
+                        *hat != crate::model::HatDirection::Centered,
+                    );
                 }
             });
         });
@@ -1126,53 +1192,122 @@ fn surface(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
         .show(ui, add_contents);
 }
 
+
 fn draw_controller_body(ui: &egui::Ui, rect: egui::Rect) {
     let painter = ui.painter();
-    let body = rect.shrink2(egui::vec2(rect.width() * 0.08, rect.height() * 0.14));
-    painter.rect_filled(body, 72, CONTROLLER);
+    let body = rect.shrink2(egui::vec2(rect.width() * 0.08, rect.height() * 0.11));
+    let dark = Color32::from_rgb(39, 44, 54);
+    let darker = Color32::from_rgb(29, 33, 42);
+    let light = Color32::from_rgb(74, 81, 94);
+    let shadow = Color32::from_rgba_unmultiplied(0, 0, 0, 24);
+
     painter.circle_filled(
-        egui::pos2(body.left() + body.width() * 0.16, body.bottom() - 12.0),
+        egui::pos2(body.left() + body.width() * 0.12, body.bottom() - 28.0),
         72.0,
-        CONTROLLER,
+        shadow,
     );
     painter.circle_filled(
-        egui::pos2(body.right() - body.width() * 0.16, body.bottom() - 12.0),
+        egui::pos2(body.right() - body.width() * 0.12, body.bottom() - 28.0),
         72.0,
-        CONTROLLER,
+        shadow,
+    );
+
+    painter.rect_filled(body, 82, dark);
+    painter.circle_filled(
+        egui::pos2(body.left() + body.width() * 0.12, body.bottom() - 18.0),
+        80.0,
+        dark,
+    );
+    painter.circle_filled(
+        egui::pos2(body.right() - body.width() * 0.12, body.bottom() - 18.0),
+        80.0,
+        dark,
     );
     painter.rect_filled(
         egui::Rect::from_center_size(
-            egui::pos2(body.center().x, body.top() + 32.0),
-            egui::vec2(body.width() * 0.34, 18.0),
+            egui::pos2(body.center().x, body.top() + 30.0),
+            egui::vec2(body.width() * 0.38, 18.0),
         ),
         9,
-        Color32::from_rgb(72, 77, 88),
+        light,
+    );
+    painter.rect_filled(
+        egui::Rect::from_center_size(
+            egui::pos2(body.left() + body.width() * 0.25, body.top() + 10.0),
+            egui::vec2(64.0, 16.0),
+        ),
+        8,
+        darker,
+    );
+    painter.rect_filled(
+        egui::Rect::from_center_size(
+            egui::pos2(body.right() - body.width() * 0.25, body.top() + 10.0),
+            egui::vec2(64.0, 16.0),
+        ),
+        8,
+        darker,
+    );
+
+    for (center, r_outer, r_inner) in [
+        (egui::pos2(body.left() + body.width() * 0.37, body.bottom() - 76.0), 28.0, 17.0),
+        (egui::pos2(body.right() - body.width() * 0.37, body.bottom() - 76.0), 28.0, 17.0),
+    ] {
+        painter.circle_filled(center, r_outer, Color32::from_rgb(237, 239, 241));
+        painter.circle_filled(center, r_inner, Color32::from_rgb(220, 224, 228));
+    }
+
+    let dpad_center = egui::pos2(body.left() + body.width() * 0.23, body.center().y + 6.0);
+    painter.rect_filled(
+        egui::Rect::from_center_size(dpad_center, egui::vec2(76.0, 24.0)),
+        10,
+        Color32::from_rgb(225, 228, 232),
+    );
+    painter.rect_filled(
+        egui::Rect::from_center_size(dpad_center, egui::vec2(24.0, 76.0)),
+        10,
+        Color32::from_rgb(225, 228, 232),
+    );
+
+    for (center, color) in [
+        (egui::pos2(body.right() - body.width() * 0.17, body.center().y - 18.0), Color32::from_rgb(235, 196, 34)),
+        (egui::pos2(body.right() - body.width() * 0.11, body.center().y + 20.0), Color32::from_rgb(224, 82, 82)),
+        (egui::pos2(body.right() - body.width() * 0.17, body.center().y + 58.0), Color32::from_rgb(85, 165, 38)),
+        (egui::pos2(body.right() - body.width() * 0.23, body.center().y + 20.0), Color32::from_rgb(62, 120, 222)),
+    ] {
+        painter.circle_filled(center, 20.0, color);
+    }
+
+    painter.circle_filled(
+        egui::pos2(body.center().x, body.center().y - 12.0),
+        18.0,
+        Color32::from_rgb(235, 238, 241),
     );
 }
 
+
 fn controller_points() -> [(OutputControl, f32, f32); 21] {
     [
-        (OutputControl::LeftShoulder, 0.28, 0.16),
-        (OutputControl::RightShoulder, 0.72, 0.16),
-        (OutputControl::LeftTrigger, 0.18, 0.10),
-        (OutputControl::RightTrigger, 0.82, 0.10),
-        (OutputControl::DpadUp, 0.27, 0.48),
-        (OutputControl::DpadRight, 0.32, 0.55),
-        (OutputControl::DpadDown, 0.27, 0.62),
-        (OutputControl::DpadLeft, 0.22, 0.55),
-        (OutputControl::Y, 0.77, 0.39),
-        (OutputControl::B, 0.82, 0.47),
-        (OutputControl::A, 0.77, 0.55),
-        (OutputControl::X, 0.72, 0.47),
-        (OutputControl::Back, 0.44, 0.45),
-        (OutputControl::Guide, 0.50, 0.39),
-        (OutputControl::Start, 0.56, 0.45),
-        (OutputControl::LeftStickX, 0.35, 0.72),
-        (OutputControl::LeftStickY, 0.41, 0.72),
-        (OutputControl::RightStickX, 0.59, 0.72),
-        (OutputControl::RightStickY, 0.65, 0.72),
-        (OutputControl::LeftThumb, 0.38, 0.81),
-        (OutputControl::RightThumb, 0.62, 0.81),
+        (OutputControl::LeftTrigger, 0.19, 0.15),
+        (OutputControl::RightTrigger, 0.81, 0.15),
+        (OutputControl::LeftShoulder, 0.27, 0.20),
+        (OutputControl::RightShoulder, 0.73, 0.20),
+        (OutputControl::Guide, 0.50, 0.42),
+        (OutputControl::Back, 0.43, 0.47),
+        (OutputControl::Start, 0.57, 0.47),
+        (OutputControl::Y, 0.76, 0.43),
+        (OutputControl::B, 0.82, 0.53),
+        (OutputControl::A, 0.76, 0.63),
+        (OutputControl::X, 0.70, 0.53),
+        (OutputControl::DpadUp, 0.24, 0.50),
+        (OutputControl::DpadRight, 0.29, 0.57),
+        (OutputControl::DpadDown, 0.24, 0.64),
+        (OutputControl::DpadLeft, 0.19, 0.57),
+        (OutputControl::LeftStickX, 0.31, 0.79),
+        (OutputControl::LeftStickY, 0.38, 0.79),
+        (OutputControl::RightStickX, 0.58, 0.79),
+        (OutputControl::RightStickY, 0.65, 0.79),
+        (OutputControl::LeftThumb, 0.345, 0.88),
+        (OutputControl::RightThumb, 0.615, 0.88),
     ]
 }
 
@@ -1249,6 +1384,7 @@ fn ui_root(app: &mut X360ceApp, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
     app.render_countdown(ui.ctx());
 }
 
+
 fn status_chip(ui: &mut egui::Ui, text: &str, fill: Color32, strong: bool) {
     egui::Frame::new()
         .fill(fill)
@@ -1256,13 +1392,46 @@ fn status_chip(ui: &mut egui::Ui, text: &str, fill: Color32, strong: bool) {
         .corner_radius(16)
         .inner_margin(egui::Margin::symmetric(10, 5))
         .show(ui, |ui| {
-            let text_color = if strong {
+            let text_color = if strong && fill != SURFACE_MUTED && fill != ACCENT_SOFT {
                 Color32::WHITE
             } else {
                 TEXT
             };
             ui.label(RichText::new(text).size(11.0).strong().color(text_color));
         });
+}
+
+fn control_preview_active(control: OutputControl, entry: &crate::model::MappingEntry, raw: &RawState) -> bool {
+    if control.is_trigger() {
+        mapper::trigger_preview(entry, raw) > 0.15
+    } else if control.is_axis() {
+        mapper::axis_preview(entry, raw).abs() > 0.15
+    } else {
+        mapper::binding_pressed(entry, raw)
+    }
+}
+
+fn active_input_labels(raw: &RawState) -> Vec<String> {
+    let mut labels = Vec::new();
+    for (index, pressed) in raw.buttons.iter().enumerate() {
+        if *pressed {
+            labels.push(format!("Button {}", index + 1));
+        }
+    }
+    for (index, value) in raw.axes.iter().enumerate() {
+        let normalized = normalize_axis(*value);
+        if normalized >= 0.18 {
+            labels.push(format!("Axis {} + {:.2}", index + 1, normalized));
+        } else if normalized <= -0.18 {
+            labels.push(format!("Axis {} - {:.2}", index + 1, normalized.abs()));
+        }
+    }
+    for (index, hat) in raw.hats.iter().enumerate() {
+        if *hat != crate::model::HatDirection::Centered {
+            labels.push(format!("Hat {} {}", index + 1, hat.label()));
+        }
+    }
+    labels
 }
 
 fn entry_label_for(profile: &ControllerProfile, control: OutputControl) -> String {
@@ -1296,6 +1465,7 @@ fn draw_embedded_logo(ui: &mut egui::Ui) {
         draw_header_logo(ui);
     }
 }
+
 fn configure_egui(ctx: &egui::Context) {
     ctx.set_theme(egui::Theme::Light);
     let mut visuals = egui::Visuals::light();
