@@ -97,6 +97,8 @@ fn run_worker(
 ) -> anyhow::Result<()> {
     sdl2::hint::set("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
     sdl2::hint::set("SDL_JOYSTICK_THREAD", "1");
+    sdl2::hint::set("SDL_JOYSTICK_RAWINPUT", "1");
+    sdl2::hint::set("SDL_JOYSTICK_HIDAPI", "1");
 
     let sdl = sdl2::init().map_err(|error| anyhow::anyhow!(error))?;
     let joystick_subsystem = sdl

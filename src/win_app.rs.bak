@@ -620,7 +620,7 @@ impl X360ceApp {
 }
 
 impl eframe::App for X360ceApp {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if ctx.input(|input| input.viewport().close_requested()) && !self.quit_requested {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.hide_window(ctx);
@@ -635,13 +635,46 @@ impl eframe::App for X360ceApp {
         self.poll_update_check();
         self.sync_tray();
 
-        ui_root(self, ctx, frame);
-
         ctx.request_repaint_after(if self.window_visible {
             VISIBLE_POLL
         } else {
             HIDDEN_POLL
         });
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        ui.painter().rect_filled(ui.max_rect(), 0, BACKGROUND);
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.add_space(18.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(22.0);
+                    ui.vertical(|ui| {
+                        ui.set_max_width((ui.available_width() - 22.0).max(760.0));
+                        self.render_header(ui);
+                        ui.add_space(12.0);
+                        self.render_status(ui);
+                        ui.add_space(12.0);
+                        self.render_device_bar(ui);
+                        ui.add_space(12.0);
+
+                        ui.columns(2, |columns| {
+                            let (left, right) = columns.split_at_mut(1);
+                            left[0].set_width(left[0].available_width());
+                            self.render_controller(&mut left[0]);
+                            self.render_mapping_editor(&mut right[0]);
+                        });
+
+                        ui.add_space(12.0);
+                        self.render_raw_inputs(ui);
+                        ui.add_space(12.0);
+                        self.render_settings(ui);
+                        ui.add_space(18.0);
+                    });
+                });
+            });
+        self.render_countdown(ui.ctx());
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -656,17 +689,17 @@ impl eframe::App for X360ceApp {
 impl X360ceApp {
     fn render_header(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            draw_embedded_logo(ui);
+            draw_header_logo(ui);
             ui.vertical(|ui| {
-                ui.label(RichText::new("x360ce").size(26.0).strong().color(TEXT));
+                ui.label(RichText::new("x360ce").size(28.0).strong().color(TEXT));
                 ui.label(
-                    RichText::new("controller mapper and virtual xbox 360 output")
-                        .size(12.0)
+                    RichText::new("Physical controller → virtual Xbox 360 controller")
+                        .size(13.0)
                         .color(MUTED),
                 );
             });
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if ui.button("tray").clicked() {
+                if ui.button("Hide to tray").clicked() {
                     self.hide_window(ui.ctx());
                 }
                 ui.label(RichText::new(config::app_version_label()).color(MUTED));
@@ -687,64 +720,36 @@ impl X360ceApp {
 
         let runtime_error = self.runtime.last_error.clone();
         surface(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                status_chip(ui, label, color, true);
-                status_chip(
-                    ui,
-                    if self.state.emulation_enabled {
-                        "virtual on"
-                    } else {
-                        "virtual off"
-                    },
-                    if self.state.emulation_enabled {
-                        ACCENT_SOFT
-                    } else {
-                        SURFACE_MUTED
-                    },
-                    false,
-                );
-                status_chip(
-                    ui,
-                    &format!("{} detected", self.runtime.devices.len()),
-                    SURFACE_MUTED,
-                    false,
-                );
-            });
-            ui.add_space(8.0);
-            ui.label(RichText::new(&self.status).color(MUTED));
-            if let Some(error) = &runtime_error {
-                ui.add_space(6.0);
-                ui.label(RichText::new(error).color(DANGER));
-            }
-            ui.add_space(10.0);
             ui.horizontal(|ui| {
-                if ui
-                    .button(if self.state.emulation_enabled {
-                        "Disable output"
+                ui.label(RichText::new(label).strong().color(color));
+                ui.separator();
+                ui.label(&self.status);
+                if let Some(error) = &runtime_error {
+                    ui.separator();
+                    ui.label(RichText::new(error).color(DANGER));
+                }
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let text = if self.state.emulation_enabled {
+                        "Disable"
                     } else {
-                        "Enable output"
-                    })
-                    .clicked()
-                {
-                    self.set_emulation_enabled(!self.state.emulation_enabled);
-                }
-                if ui.button("Refresh controllers").clicked() {
-                    self.engine.send(EngineCommand::Refresh);
-                    self.status = "Refreshing controllers…".to_owned();
-                    self.mark_activity();
-                }
-                if !self.runtime.driver_installed && ui.button("Install ViGEmBus").clicked() {
-                    match driver::launch_installer_elevated() {
-                        Ok(_) => {
-                            self.status =
-                                "Driver installer opened. Restart x360ce after install.".to_owned()
-                        }
-                        Err(error) => self.status = format!("Driver installer failed: {error}"),
+                        "Enable"
+                    };
+                    if ui.button(text).clicked() {
+                        self.set_emulation_enabled(!self.state.emulation_enabled);
                     }
-                }
+                    if !self.runtime.driver_installed && ui.button("Install ViGEmBus").clicked() {
+                        match driver::launch_installer_elevated() {
+                            Ok(_) => {
+                                self.status = "Driver installer opened. Restart x360ce after install.".to_owned()
+                            }
+                            Err(error) => self.status = format!("Driver installer failed: {error}"),
+                        }
+                    }
+                });
             });
         });
     }
+
     fn render_device_bar(&mut self, ui: &mut egui::Ui) {
         surface(ui, |ui| {
             ui.horizontal(|ui| {
@@ -866,19 +871,27 @@ impl X360ceApp {
             let control = self.selected_control;
             let profile = self.current_profile();
             ui.label(RichText::new(control.label()).size(18.0).strong());
-            ui.label(RichText::new(entry_label_for(&profile, control)).color(MUTED));
+            ui.label(
+                RichText::new(format!("{} · {}", profile.name, profile.device_guid))
+                    .size(10.0)
+                    .color(MUTED),
+            );
+            let entry = profile.entry(control).cloned().unwrap_or_else(|| {
+                crate::model::MappingEntry::new(control, InputBinding::None)
+            });
+            ui.label(RichText::new(entry.binding.label()).color(MUTED));
             ui.add_space(10.0);
 
             let learning = self.learning_control == Some(control);
             ui.horizontal(|ui| {
                 if ui
-                    .add_enabled(!learning, egui::Button::new("Learn"))
+                    .add_enabled(!learning, egui::Button::new("Learn input"))
                     .clicked()
                 {
                     self.begin_learning(control);
                 }
                 if learning {
-                    ui.label(RichText::new("waiting for input…").color(ACCENT));
+                    ui.label(RichText::new("Waiting for input…").color(ACCENT));
                     if ui.button("Cancel").clicked() {
                         self.learning_control = None;
                         self.status = "Mapping capture canceled.".to_owned();
@@ -897,9 +910,12 @@ impl X360ceApp {
                     changed |= ui.checkbox(&mut mapping.invert, "Invert").changed();
                     if control.is_trigger() {
                         changed |= ui
-                            .checkbox(&mut mapping.centered_axis, "Split axis")
+                            .checkbox(
+                                &mut mapping.centered_axis,
+                                "Centered/split source axis",
+                            )
                             .on_hover_text(
-                                "Enable when both triggers share one centered axis.",
+                                "Enable when two triggers share one axis centered at zero.",
                             )
                             .changed();
                     }
@@ -913,7 +929,7 @@ impl X360ceApp {
                     changed |= ui
                         .add(
                             egui::Slider::new(&mut mapping.saturation, 0.5..=1.0)
-                                .text("Max")
+                                .text("Saturation")
                                 .fixed_decimals(2),
                         )
                         .changed();
@@ -935,32 +951,36 @@ impl X360ceApp {
                         }
                     })
                     .unwrap_or_default();
+                ui.add_space(8.0);
+                ui.label(format!("Live value: {value:.2}"));
                 let progress = if control.is_trigger() {
                     value.clamp(0.0, 1.0)
                 } else {
                     ((value + 1.0) * 0.5).clamp(0.0, 1.0)
                 };
-                ui.add_space(8.0);
                 ui.add(egui::ProgressBar::new(progress).show_percentage());
             }
 
-            ui.add_space(12.0);
-            egui::CollapsingHeader::new("all mappings")
-                .default_open(true)
+            ui.add_space(14.0);
+            ui.separator();
+            ui.add_space(8.0);
+            ui.label(RichText::new("Mappings").strong());
+            egui::ScrollArea::vertical()
+                .max_height(220.0)
                 .show(ui, |ui| {
                     let profile = self.current_profile();
                     for control in OutputControl::BUTTONS
                         .into_iter()
                         .chain(OutputControl::ANALOGS)
                     {
+                        let binding = profile
+                            .entry(control)
+                            .map(|entry| entry.binding.label())
+                            .unwrap_or_else(|| "Not mapped".to_owned());
                         if ui
                             .selectable_label(
                                 self.selected_control == control,
-                                format!(
-                                    "{}  ·  {}",
-                                    control.label(),
-                                    entry_label_for(&profile, control)
-                                ),
+                                format!("{:<18}  {}", control.label(), binding),
                             )
                             .clicked()
                         {
@@ -971,6 +991,7 @@ impl X360ceApp {
                 });
         });
     }
+
     fn render_raw_inputs(&mut self, ui: &mut egui::Ui) {
         surface(ui, |ui| {
             ui.label(RichText::new("Live physical input").strong());
@@ -995,126 +1016,124 @@ impl X360ceApp {
 
     fn render_settings(&mut self, ui: &mut egui::Ui) {
         surface(ui, |ui| {
-            ui.label(RichText::new("Settings").strong());
-
-            let mut changed = false;
-            changed |= ui
-                .checkbox(&mut self.state.auto_tray_enabled, "Auto tray after inactivity")
-                .changed();
-            changed |= ui
-                .checkbox(&mut self.state.start_in_tray, "Start in tray")
-                .changed();
-            if changed {
-                self.mark_activity();
-                self.save();
-                self.sync_tray();
-            }
-
-            ui.add_space(8.0);
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Idle").color(MUTED));
-                if ui
-                    .add(egui::Slider::new(
-                        &mut self.state.auto_tray_idle_seconds,
-                        10..=600,
-                    ))
-                    .changed()
-                {
-                    self.mark_activity();
-                    self.save();
-                }
-                ui.label(RichText::new("Countdown").color(MUTED));
-                if ui
-                    .add(egui::Slider::new(
-                        &mut self.state.auto_tray_countdown_seconds,
-                        3..=30,
-                    ))
-                    .changed()
-                {
-                    self.mark_activity();
-                    self.save();
-                }
-            });
-
-            ui.add_space(8.0);
-            if ui
-                .add_enabled(
-                    !config::is_dev_build(),
-                    egui::Button::new(if self.state.startup_enabled {
+                ui.vertical(|ui| {
+                    ui.label(RichText::new("Tray and startup").strong());
+                    let mut changed = false;
+                    changed |= ui
+                        .checkbox(
+                            &mut self.state.auto_tray_enabled,
+                            "Move UI to tray after inactivity",
+                        )
+                        .changed();
+                    changed |= ui
+                        .checkbox(&mut self.state.start_in_tray, "Start directly in tray")
+                        .changed();
+                    changed |= ui
+                        .add(
+                            egui::Slider::new(
+                                &mut self.state.auto_tray_idle_seconds,
+                                10..=600,
+                            )
+                            .text("Idle seconds"),
+                        )
+                        .changed();
+                    changed |= ui
+                        .add(
+                            egui::Slider::new(
+                                &mut self.state.auto_tray_countdown_seconds,
+                                3..=30,
+                            )
+                            .text("Countdown seconds"),
+                        )
+                        .changed();
+                    if changed {
+                        self.mark_activity();
+                        self.save();
+                        self.sync_tray();
+                    }
+                    let startup_label = if self.state.startup_enabled {
                         "Disable Windows startup"
                     } else {
                         "Enable Windows startup"
-                    }),
-                )
-                .clicked()
-            {
-                self.toggle_startup();
-            }
-
-            ui.add_space(8.0);
-            egui::CollapsingHeader::new("updates")
-                .default_open(false)
-                .show(ui, |ui| {
+                    };
                     if ui
-                        .checkbox(&mut self.state.include_prereleases, "Include prereleases")
+                        .add_enabled(!config::is_dev_build(), egui::Button::new(startup_label))
+                        .clicked()
+                    {
+                        self.toggle_startup();
+                    }
+                });
+
+                ui.separator();
+
+                ui.vertical(|ui| {
+                    ui.label(RichText::new("Updates").strong());
+                    if ui
+                        .checkbox(
+                            &mut self.state.include_prereleases,
+                            "Include prereleases",
+                        )
                         .changed()
                     {
                         self.save();
                         self.sync_tray();
                     }
-                    ui.horizontal(|ui| {
-                        if ui
-                            .add_enabled(
-                                !config::is_dev_build() && self.update_rx.is_none(),
-                                egui::Button::new("Check now"),
-                            )
-                            .clicked()
-                        {
-                            self.save();
-                            self.start_update_check();
+                    if ui
+                        .add_enabled(
+                            !config::is_dev_build() && self.update_rx.is_none(),
+                            egui::Button::new("Check for updates"),
+                        )
+                        .clicked()
+                    {
+                        self.save();
+                        self.start_update_check();
+                    }
+                    if ui
+                        .add_enabled(
+                            self.last_update_check
+                                .as_ref()
+                                .map(|check| {
+                                    check.is_update_available
+                                        && check.asset_download_url.is_some()
+                                })
+                                .unwrap_or(false),
+                            egui::Button::new("Install update"),
+                        )
+                        .clicked()
+                    {
+                        self.install_update();
+                    }
+                    if ui.button("Open releases").clicked() {
+                        if let Err(error) = updater::open_releases_page() {
+                            self.status = format!("Could not open releases: {error}");
                         }
-                        if ui
-                            .add_enabled(
-                                self.last_update_check
-                                    .as_ref()
-                                    .map(|check| {
-                                        check.is_update_available
-                                            && check.asset_download_url.is_some()
-                                    })
-                                    .unwrap_or(false),
-                                egui::Button::new("Install update"),
-                            )
-                            .clicked()
-                        {
-                            self.install_update();
-                        }
-                    });
+                    }
                 });
 
-            egui::CollapsingHeader::new("portable data")
-                .default_open(false)
-                .show(ui, |ui| match config::state_path() {
-                    Ok(path) => {
-                        ui.label(
-                            RichText::new(path.display().to_string())
-                                .size(10.0)
-                                .color(MUTED),
-                        );
-                        ui.label(
-                            RichText::new(
-                                "profiles and settings live beside executable in .x360ce-data",
-                            )
-                            .size(11.0)
-                            .color(MUTED),
-                        );
+                ui.separator();
+
+                ui.vertical(|ui| {
+                    ui.label(RichText::new("Portable data").strong());
+                    match config::state_path() {
+                        Ok(path) => {
+                            ui.label(
+                                RichText::new(path.display().to_string())
+                                    .size(10.0)
+                                    .color(MUTED),
+                            );
+                        }
+                        Err(error) => {
+                            ui.label(RichText::new(error.to_string()).color(DANGER));
+                        }
                     }
-                    Err(error) => {
-                        ui.label(RichText::new(error.to_string()).color(DANGER));
-                    }
+                    ui.label("All profiles stay beside executable in .x360ce-data/config.json.");
                 });
+            });
         });
     }
 }
+
 fn surface(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
     egui::Frame::new()
         .fill(SURFACE)
@@ -1208,94 +1227,6 @@ fn normalize_axis(value: i16) -> f32 {
     }
 }
 
-fn ui_root(app: &mut X360ceApp, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-    egui::CentralPanel::default().show(ctx, |ui| {
-        ui.painter().rect_filled(ui.max_rect(), 0.0, BACKGROUND);
-        egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.add_space(18.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(22.0);
-                    ui.vertical(|ui| {
-                        ui.set_max_width((ui.available_width() - 22.0).max(760.0));
-                        app.render_header(ui);
-                        ui.add_space(14.0);
-                        app.render_status(ui);
-                        ui.add_space(14.0);
-                        ui.columns(2, |columns| {
-                            let (left, right) = columns.split_at_mut(1);
-                            left[0].set_width(left[0].available_width());
-                            app.render_controller(&mut left[0]);
-                            right[0].vertical(|ui| {
-                                app.render_device_bar(ui);
-                                ui.add_space(12.0);
-                                app.render_mapping_editor(ui);
-                                ui.add_space(12.0);
-                                app.render_settings(ui);
-                            });
-                        });
-                        ui.add_space(12.0);
-                        egui::CollapsingHeader::new("raw input monitor")
-                            .default_open(false)
-                            .show(ui, |ui| {
-                                app.render_raw_inputs(ui);
-                            });
-                        ui.add_space(18.0);
-                    });
-                });
-            });
-        app.render_countdown(ctx);
-    });
-}
-
-fn status_chip(ui: &mut egui::Ui, text: &str, fill: Color32, strong: bool) {
-    egui::Frame::new()
-        .fill(fill)
-        .stroke(Stroke::NONE)
-        .corner_radius(999)
-        .inner_margin(egui::Margin::symmetric(10, 5))
-        .show(ui, |ui| {
-            let text_color = if strong {
-                Color32::WHITE
-            } else {
-                TEXT
-            };
-            ui.label(RichText::new(text).size(11.0).strong().color(text_color));
-        });
-}
-
-fn entry_label_for(profile: &ControllerProfile, control: OutputControl) -> String {
-    profile
-        .entry(control)
-        .map(|entry| entry.binding.label())
-        .unwrap_or_else(|| "Not mapped".to_owned())
-}
-
-fn draw_embedded_logo(ui: &mut egui::Ui) {
-    let image = image::load_from_memory(include_bytes!("../assets/x360ce.png"))
-        .ok()
-        .map(|image| image.into_rgba8());
-
-    if let Some(image) = image {
-        let (width, height) = image.dimensions();
-        let color_image = egui::ColorImage::from_rgba_unmultiplied(
-            [width as usize, height as usize],
-            image.as_raw(),
-        );
-        let texture = ui.ctx().load_texture(
-            "x360ce-embedded-logo",
-            color_image,
-            egui::TextureOptions::LINEAR,
-        );
-        ui.add(
-            egui::widgets::Image::new(&texture)
-                .fit_to_exact_size(egui::vec2(56.0, 56.0)),
-        );
-    } else {
-        draw_header_logo(ui);
-    }
-}
 fn configure_egui(ctx: &egui::Context) {
     ctx.set_theme(egui::Theme::Light);
     let mut visuals = egui::Visuals::light();

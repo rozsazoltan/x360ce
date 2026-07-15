@@ -3,7 +3,8 @@ use crate::model::{
 };
 use vigem_rust::{X360Button, X360Report};
 
-const LEARN_AXIS_THRESHOLD: i16 = 16_000;
+const LEARN_AXIS_DELTA_THRESHOLD: i32 = 7_500;
+const LEARN_AXIS_ABSOLUTE_THRESHOLD: i32 = 12_000;
 const BUTTON_AXIS_THRESHOLD: f32 = 0.55;
 
 pub fn detect_binding(previous: &RawState, current: &RawState) -> Option<InputBinding> {
@@ -11,20 +12,6 @@ pub fn detect_binding(previous: &RawState, current: &RawState) -> Option<InputBi
         let was_pressed = previous.buttons.get(index).copied().unwrap_or(false);
         if pressed && !was_pressed {
             return Some(InputBinding::Button {
-                index: index as u32,
-            });
-        }
-    }
-
-    for (index, value) in current.axes.iter().copied().enumerate() {
-        let previous_value = previous.axes.get(index).copied().unwrap_or_default();
-        if value >= LEARN_AXIS_THRESHOLD && previous_value < LEARN_AXIS_THRESHOLD {
-            return Some(InputBinding::AxisPositive {
-                index: index as u32,
-            });
-        }
-        if value <= -LEARN_AXIS_THRESHOLD && previous_value > -LEARN_AXIS_THRESHOLD {
-            return Some(InputBinding::AxisNegative {
                 index: index as u32,
             });
         }
@@ -44,7 +31,40 @@ pub fn detect_binding(previous: &RawState, current: &RawState) -> Option<InputBi
         }
     }
 
-    None
+    let mut best_axis: Option<(i32, InputBinding)> = None;
+    for (index, value) in current.axes.iter().copied().enumerate() {
+        let previous_value = previous.axes.get(index).copied().unwrap_or_default() as i32;
+        let current_value = value as i32;
+        let delta = current_value - previous_value;
+        let magnitude = current_value.abs();
+
+        let crossed_with_force = delta.abs() >= LEARN_AXIS_DELTA_THRESHOLD
+            && (magnitude >= LEARN_AXIS_ABSOLUTE_THRESHOLD
+                || delta.abs() >= LEARN_AXIS_DELTA_THRESHOLD * 2);
+        if !crossed_with_force {
+            continue;
+        }
+
+        let candidate = if delta >= 0 {
+            InputBinding::AxisPositive {
+                index: index as u32,
+            }
+        } else {
+            InputBinding::AxisNegative {
+                index: index as u32,
+            }
+        };
+        let score = delta.abs();
+        if best_axis
+            .as_ref()
+            .map(|(best_score, _)| score > *best_score)
+            .unwrap_or(true)
+        {
+            best_axis = Some((score, candidate));
+        }
+    }
+
+    best_axis.map(|(_, binding)| binding)
 }
 
 pub fn map_report(profile: &ControllerProfile, raw: &RawState) -> X360Report {
@@ -90,17 +110,9 @@ pub fn map_report(profile: &ControllerProfile, raw: &RawState) -> X360Report {
 pub fn binding_pressed(entry: &MappingEntry, raw: &RawState) -> bool {
     match entry.binding {
         InputBinding::None => false,
-        InputBinding::Button { index } => raw
-            .buttons
-            .get(index as usize)
-            .copied()
-            .unwrap_or(false),
-        InputBinding::AxisPositive { index } => {
-            normalized_axis(raw, index) > BUTTON_AXIS_THRESHOLD
-        }
-        InputBinding::AxisNegative { index } => {
-            normalized_axis(raw, index) < -BUTTON_AXIS_THRESHOLD
-        }
+        InputBinding::Button { index } => raw.buttons.get(index as usize).copied().unwrap_or(false),
+        InputBinding::AxisPositive { index } => normalized_axis(raw, index) > BUTTON_AXIS_THRESHOLD,
+        InputBinding::AxisNegative { index } => normalized_axis(raw, index) < -BUTTON_AXIS_THRESHOLD,
         InputBinding::Hat { index, direction } => raw
             .hats
             .get(index as usize)
@@ -114,12 +126,7 @@ pub fn axis_preview(entry: &MappingEntry, raw: &RawState) -> f32 {
     let mut value = match entry.binding {
         InputBinding::None => 0.0,
         InputBinding::Button { index } => {
-            if raw
-                .buttons
-                .get(index as usize)
-                .copied()
-                .unwrap_or(false)
-            {
+            if raw.buttons.get(index as usize).copied().unwrap_or(false) {
                 1.0
             } else {
                 0.0
@@ -162,12 +169,7 @@ pub fn trigger_preview(entry: &MappingEntry, raw: &RawState) -> f32 {
     let mut value = match entry.binding {
         InputBinding::None => 0.0,
         InputBinding::Button { index } => {
-            if raw
-                .buttons
-                .get(index as usize)
-                .copied()
-                .unwrap_or(false)
-            {
+            if raw.buttons.get(index as usize).copied().unwrap_or(false) {
                 1.0
             } else {
                 0.0
@@ -284,6 +286,22 @@ mod tests {
         assert_eq!(
             detect_binding(&previous, &current),
             Some(InputBinding::Button { index: 0 })
+        );
+    }
+
+    #[test]
+    fn learns_axis_from_large_delta() {
+        let previous = RawState {
+            axes: vec![-32_768],
+            ..Default::default()
+        };
+        let current = RawState {
+            axes: vec![0],
+            ..Default::default()
+        };
+        assert_eq!(
+            detect_binding(&previous, &current),
+            Some(InputBinding::AxisPositive { index: 0 })
         );
     }
 

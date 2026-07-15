@@ -139,16 +139,15 @@ Development builds disable update checks and executable replacement.
 
 ### Design assets
 
-Canonical icon:
-
-```text
-assets/x360ce.svg
-```
-
-Generated Windows assets:
+Canonical icon and in-app graphic:
 
 ```text
 assets/x360ce.png
+```
+
+Windows assets:
+
+```text
 assets/x360ce-tray.png
 assets/x360ce.ico
 ```
@@ -351,7 +350,6 @@ x360ce/
 ├─ assets/
 │  ├─ third-party/
 │  │  └─ ViGEmBus_1.22.0_x64_x86_arm64.bin
-│  ├─ x360ce.svg
 │  ├─ x360ce.png
 │  ├─ x360ce-tray.png
 │  └─ x360ce.ico
