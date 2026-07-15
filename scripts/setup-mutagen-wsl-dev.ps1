@@ -158,7 +158,6 @@ if ($ExistingSession) {
         "--ignore", "dist",
         "--ignore", ".x360ce-data",
         "--ignore", "*.zip",
-        "--ignore", "*.exe",
         "--ignore", "*.pdb",
         $SourceFullPath,
         $TargetFullPath

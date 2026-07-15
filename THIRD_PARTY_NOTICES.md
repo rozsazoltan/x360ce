@@ -5,7 +5,7 @@
 Embedded file:
 
 ```text
-assets/third-party/ViGEmBus_1.22.0_x64_x86_arm64.exe
+assets/third-party/ViGEmBus_1.22.0_x64_x86_arm64.bin
 ```
 
 Project: ViGEmBus by Nefarius Software Solutions e.U.

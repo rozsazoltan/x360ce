@@ -14,9 +14,10 @@ use crate::wide::str_wide_null;
 
 const SERVICE_KEY: &str = r"SYSTEM\CurrentControlSet\Services\ViGEmBus";
 const INSTALLER_FILE_NAME: &str = "ViGEmBus_1.22.0_x64_x86_arm64.exe";
-const INSTALLER_BYTES: &[u8] = include_bytes!(
-    "../assets/third-party/ViGEmBus_1.22.0_x64_x86_arm64.exe"
-);
+const INSTALLER_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/assets/third-party/ViGEmBus_1.22.0_x64_x86_arm64.bin"
+));
 
 pub fn is_installed() -> bool {
     let mut key: HKEY = ptr::null_mut();

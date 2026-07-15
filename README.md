@@ -182,7 +182,7 @@ x360ce/
 x360ce embeds official ViGEmBus `1.22.0` bootstrapper:
 
 ```text
-assets/third-party/ViGEmBus_1.22.0_x64_x86_arm64.exe
+assets/third-party/ViGEmBus_1.22.0_x64_x86_arm64.bin
 ```
 
 **Install ViGEmBus** extracts fresh bootstrapper bytes to process-specific temporary folder and launches it with Windows elevation prompt. Driver installation is system-level and cannot be made portable inside user-mode executable.
@@ -350,7 +350,7 @@ x360ce/
 │  └─ release.yml
 ├─ assets/
 │  ├─ third-party/
-│  │  └─ ViGEmBus_1.22.0_x64_x86_arm64.exe
+│  │  └─ ViGEmBus_1.22.0_x64_x86_arm64.bin
 │  ├─ x360ce.svg
 │  ├─ x360ce.png
 │  ├─ x360ce-tray.png

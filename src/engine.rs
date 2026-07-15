@@ -284,7 +284,6 @@ fn read_raw_state(joystick: &sdl2::joystick::Joystick) -> RawState {
         axes,
         buttons,
         hats,
-        sequence: 0,
     }
 }
 

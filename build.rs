@@ -1,7 +1,7 @@
 fn main() {
     println!("cargo:rerun-if-changed=assets/x360ce.ico");
     println!("cargo:rerun-if-changed=src/x360ce.exe.manifest");
-    println!("cargo:rerun-if-changed=assets/third-party/ViGEmBus_1.22.0_x64_x86_arm64.exe");
+    println!("cargo:rerun-if-changed=assets/third-party/ViGEmBus_1.22.0_x64_x86_arm64.bin");
 
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
