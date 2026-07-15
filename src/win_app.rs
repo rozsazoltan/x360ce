@@ -1253,7 +1253,7 @@ fn status_chip(ui: &mut egui::Ui, text: &str, fill: Color32, strong: bool) {
     egui::Frame::new()
         .fill(fill)
         .stroke(Stroke::NONE)
-        .corner_radius(999)
+        .corner_radius(16)
         .inner_margin(egui::Margin::symmetric(10, 5))
         .show(ui, |ui| {
             let text_color = if strong {

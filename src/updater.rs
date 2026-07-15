@@ -10,7 +10,6 @@ use std::{
 
 const RELEASES_API: &str = "https://api.github.com/repos/rozsazoltan/x360ce/releases";
 const LATEST_RELEASE_API: &str = "https://api.github.com/repos/rozsazoltan/x360ce/releases/latest";
-const RELEASES_PAGE: &str = "https://github.com/rozsazoltan/x360ce/releases";
 const USER_AGENT: &str = "x360ce-Updater";
 
 #[derive(Clone, Debug)]
@@ -252,23 +251,3 @@ fn ensure_current_exe_can_be_replaced(current_exe: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn open_releases_page() -> Result<()> {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        Command::new("cmd")
-            .args(["/C", "start", "", RELEASES_PAGE])
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn()
-            .context("failed to open releases page")?;
-    }
-    #[cfg(not(windows))]
-    {
-        Command::new("xdg-open")
-            .arg(RELEASES_PAGE)
-            .spawn()
-            .context("failed to open releases page")?;
-    }
-    Ok(())
-}
