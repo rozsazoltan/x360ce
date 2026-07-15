@@ -1,2 +1,2 @@
 [alias]
-dev = "run --bin x360ce-dev --"
+dev = ["run", "--manifest-path", "tools/x360ce-dev/Cargo.toml", "--"]

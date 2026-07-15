@@ -68,6 +68,7 @@ if (-not $SessionExists) {
 Invoke-Mutagen -Arguments @("sync", "flush", $SessionName)
 
 Set-Location $WindowsProjectPath
+& "$PSScriptRoot\resolve-cmake.ps1"
 
 Write-Host "x360ce Windows dev runner"
 Write-Host "Project: $WindowsProjectPath"

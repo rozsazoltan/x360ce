@@ -7,7 +7,6 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-Location (Resolve-Path "$PSScriptRoot\..")
-
 function Assert-SemanticVersion {
     param([string]$Value)
 
@@ -62,6 +61,7 @@ if ($Version -ne $PackageVersion) {
     throw "Requested local build version $Version does not match Cargo.toml version $PackageVersion. Use -Publish to let release workflow update version metadata."
 }
 
+& "$PSScriptRoot\resolve-cmake.ps1"
 rustup target add $Target
 cargo fmt --all -- --check
 cargo clippy --target $Target --all-targets --all-features -- -D warnings

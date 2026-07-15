@@ -1,3 +1,7 @@
+[workspace]
+members = ["tools/x360ce-dev"]
+resolver = "2"
+
 [package]
 name = "x360ce"
 default-run = "x360ce"

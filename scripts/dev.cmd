@@ -1,6 +1,3 @@
 @echo off
 setlocal
-cd /d "%~dp0.."
-echo x360ce dev launcher
-echo Using project-local dev runner; cargo-watch is not required.
-cargo run --bin x360ce-dev --
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0dev.ps1"

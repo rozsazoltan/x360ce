@@ -361,10 +361,10 @@ x360ce/
 │  ├─ dev.sh
 │  ├─ dev-win.ps1
 │  ├─ release.ps1
+│  ├─ resolve-cmake.ps1
 │  ├─ setup-mutagen-wsl-dev.cmd
 │  └─ setup-mutagen-wsl-dev.ps1
 ├─ src/
-│  ├─ bin/x360ce-dev.rs
 │  ├─ config.rs
 │  ├─ driver.rs
 │  ├─ engine.rs
@@ -378,6 +378,9 @@ x360ce/
 │  ├─ wide.rs
 │  ├─ win_app.rs
 │  └─ x360ce.exe.manifest
+├─ tools/x360ce-dev/
+│  ├─ Cargo.toml
+│  └─ src/main.rs
 ├─ build.rs
 ├─ Cargo.toml
 ├─ CONTRIBUTING.md
@@ -420,21 +423,17 @@ Requirements:
 ```text
 Windows 10/11 x64
 Rust 1.92 or newer
-MSVC build tools
+Visual Studio 2022 Desktop development with C++ and C++ CMake tools for Windows
 PowerShell 7 recommended for release script
 ```
 
-Development build:
+Development build and run once:
 
 ```powershell
-cargo build --bin x360ce
+scripts\dev.ps1
 ```
 
-Run once:
-
-```powershell
-cargo run --bin x360ce
-```
+This resolves a working standalone or Visual Studio CMake executable before SDL2 build. Broken `mise` shims are skipped.
 
 Polling dev runner:
 
@@ -529,7 +528,7 @@ Unix-like shell:
 scripts/dev.sh
 ```
 
-Dev runner builds `x360ce`, opens app window, watches source and assets, stops previous child process, and restarts after changes. No external `cargo-watch` dependency.
+Dev runner resolves working CMake, builds `x360ce`, opens app window, watches source and assets, stops previous child process, and restarts after changes. No external `cargo-watch` dependency. `cargo dev` uses separate lightweight bootstrap crate, so SDL2 does not build before CMake resolution.
 
 Development builds:
 
@@ -556,3 +555,15 @@ scripts\dev-win.ps1
 ```
 
 This preserves Linux-native source workflow while compiling and running Windows UI, SDL2, tray, registry, and ViGEm integrations on Windows.
+
+### CMake and mise
+
+SDL2 bundled static build requires working CMake. Development and local release scripts test every detected `cmake.exe`, skip broken `mise` shims, then prefer standalone CMake or Visual Studio CMake.
+
+When no working executable exists:
+
+```powershell
+mise use -g cmake@latest
+```
+
+Alternative: add **C++ CMake tools for Windows** through Visual Studio Installer.
