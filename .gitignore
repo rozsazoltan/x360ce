@@ -1,0 +1,7 @@
+/target/
+/dist/
+/.cache/
+/.x360ce-data/
+*.pdb
+*.ilk
+*.tmp

@@ -1,0 +1,49 @@
+[package]
+name = "x360ce"
+default-run = "x360ce"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.92"
+build = "build.rs"
+license = "AGPL-3.0-or-later"
+description = "minimal Windows controller mapper with virtual Xbox 360 output"
+repository = "https://github.com/rozsazoltan/x360ce"
+
+[dependencies]
+anyhow = "1.0"
+crossbeam-channel = "0.5"
+reqwest = { version = "=0.13.4", default-features = false, features = ["blocking", "json", "rustls"] }
+semver = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[target.'cfg(windows)'.dependencies]
+eframe = { version = "=0.35.0", default-features = false, features = ["default_fonts", "glow"] }
+image = { version = "=0.25.10", default-features = false, features = ["png"] }
+sdl2 = { version = "=0.38.0", default-features = false, features = ["bundled", "static-link"] }
+tray-icon = { version = "=0.24.1", default-features = false, features = ["common-controls-v6"] }
+vigem-rust = { version = "=0.1.1", default-features = false, features = ["x360"] }
+windows-sys = { version = "=0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_System_Registry",
+    "Win32_System_Threading",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[build-dependencies]
+winresource = { version = "=0.1.31", default-features = false }
+
+[profile.dev]
+opt-level = 1
+debug = 1
+incremental = true
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"

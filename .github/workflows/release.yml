@@ -1,0 +1,287 @@
+name: Release
+
+run-name: Release x360ce v${{ inputs.version }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version without the v prefix, for example: 0.10.0 or 0.10.0-beta.1"
+        required: true
+        type: string
+      prerelease:
+        description: "Publish this GitHub release as a prerelease"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  windows-release:
+    name: Prepare release, squash merge, and publish Windows executable
+    runs-on: windows-latest
+    env:
+      RUST_TARGET: x86_64-pc-windows-msvc
+      CARGO_TARGET_DIR: .cache/cargo-target
+      CARGO_INCREMENTAL: 0
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate release version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $Version = "${{ inputs.version }}".Trim()
+          if ($Version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$') {
+              Write-Error "Invalid version '$Version'. Use semantic version format like 0.10.0 or 0.10.0-beta.1. Do not include the v prefix."
+              exit 1
+          }
+
+          $Tag = "v$Version"
+          $ReleaseTitle = "x360ce $Tag"
+          $ReleaseBranch = "chore/release-$Tag"
+          $IsPrerelease = "${{ inputs.prerelease }}".ToLowerInvariant() -eq "true"
+
+          "VERSION=$Version" >> $env:GITHUB_ENV
+          "TAG=$Tag" >> $env:GITHUB_ENV
+          "RELEASE_TITLE=$ReleaseTitle" >> $env:GITHUB_ENV
+          "RELEASE_BRANCH=$ReleaseBranch" >> $env:GITHUB_ENV
+          "IS_PRERELEASE=$($IsPrerelease.ToString().ToLowerInvariant())" >> $env:GITHUB_ENV
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.RUST_TARGET }}
+
+      - name: Compute Cargo dependency cache key
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $CargoToml = Get-Content "Cargo.toml" -Raw
+          $DependencySectionPattern = '(?ms)^\[(dependencies|dev-dependencies|build-dependencies|workspace\.dependencies|target\.[^\]]+\.dependencies|target\.[^\]]+\.dev-dependencies|target\.[^\]]+\.build-dependencies)\]\s*.*?(?=^\[|\z)'
+          $DependencySections = [regex]::Matches($CargoToml, $DependencySectionPattern)
+          if ($DependencySections.Count -eq 0) {
+              Write-Error "Could not find dependency sections in Cargo.toml for the release cache key."
+              exit 1
+          }
+
+          # Keep the cache stable across x360ce release version changes.
+          # Only dependency declarations and dependency lock metadata are used.
+          $CacheParts = New-Object System.Collections.Generic.List[string]
+          $CacheParts.Add("cargo-dependency-sections")
+          foreach ($Section in $DependencySections) {
+              $CacheParts.Add($Section.Value.Trim())
+          }
+
+          if (Test-Path "Cargo.lock") {
+              $CargoLock = Get-Content "Cargo.lock" -Raw
+              $PackageBlocks = [regex]::Matches($CargoLock, '(?ms)^\[\[package\]\]\s*.*?(?=^\[\[package\]\]|\z)')
+              $DependencyLockBlocks = foreach ($Block in $PackageBlocks) {
+                  $Value = $Block.Value.Trim()
+                  if ($Value -notmatch '(?m)^name\s*=\s*"x360ce"\s*$') {
+                      $Value
+                  }
+              }
+              if ($DependencyLockBlocks) {
+                  $CacheParts.Add("cargo-lock-dependency-packages")
+                  foreach ($Block in $DependencyLockBlocks) {
+                      $CacheParts.Add($Block)
+                  }
+              }
+          }
+
+          $CacheParts.Add("rust-toolchain=stable")
+          $CacheParts.Add("rust-target=$env:RUST_TARGET")
+          $CacheInput = $CacheParts -join "`n`n"
+          $CacheInputPath = Join-Path $env:RUNNER_TEMP "cargo-deps-cache-input.txt"
+          Set-Content -Path $CacheInputPath -Value $CacheInput -NoNewline
+          $CacheHash = (Get-FileHash $CacheInputPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          "CARGO_DEPS_CACHE_HASH=$CacheHash" >> $env:GITHUB_ENV
+          Write-Host "Cargo dependency cache hash: $CacheHash"
+          Write-Host "Cache ignores the x360ce package version and invalidates only when dependency declarations or locked dependency packages change."
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ${{ env.CARGO_TARGET_DIR }}/${{ env.RUST_TARGET }}/release/deps
+            ${{ env.CARGO_TARGET_DIR }}/${{ env.RUST_TARGET }}/release/build
+            ${{ env.CARGO_TARGET_DIR }}/${{ env.RUST_TARGET }}/release/.fingerprint
+          key: cargo-${{ runner.os }}-${{ env.RUST_TARGET }}-stable-deps-${{ env.CARGO_DEPS_CACHE_HASH }}
+
+      - name: Prepare release branch and commit version metadata
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $DefaultBranch = "${{ github.event.repository.default_branch }}"
+          $CommitMessage = "chore: release $env:TAG"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin --prune --tags
+          git checkout -B $DefaultBranch "origin/$DefaultBranch"
+          git pull --ff-only origin $DefaultBranch
+
+          $ExistingTag = git ls-remote --tags origin "refs/tags/$env:TAG"
+          if ($ExistingTag) {
+              Write-Error "Tag $env:TAG already exists. Choose a new release version."
+              exit 1
+          }
+
+          $ExistingReleaseBranch = git ls-remote --heads origin $env:RELEASE_BRANCH
+          if ($ExistingReleaseBranch) {
+              Write-Error "Release branch $env:RELEASE_BRANCH already exists. Delete it or choose a new release version."
+              exit 1
+          }
+
+          git checkout -b $env:RELEASE_BRANCH
+
+          $CargoTomlPath = "Cargo.toml"
+          $CargoToml = Get-Content $CargoTomlPath -Raw
+          $CargoPattern = '(?ms)(^\[package\]\s*.*?^version\s*=\s*")[^"]+(")'
+          if (-not [regex]::IsMatch($CargoToml, $CargoPattern)) {
+              Write-Error "Could not find the package version in Cargo.toml."
+              exit 1
+          }
+          $CargoToml = [regex]::Replace($CargoToml, $CargoPattern, "`${1}$env:VERSION`${2}", 1)
+          Set-Content -Path $CargoTomlPath -Value $CargoToml -NoNewline
+
+          $ManifestPath = "src/x360ce.exe.manifest"
+          if (Test-Path $ManifestPath) {
+              $ManifestVersionMatch = [regex]::Match($env:VERSION, '^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)')
+              if (-not $ManifestVersionMatch.Success) {
+                  Write-Error "Could not derive a Windows manifest version from '$env:VERSION'."
+                  exit 1
+              }
+              $ManifestVersion = "{0}.{1}.{2}.0" -f `
+                  $ManifestVersionMatch.Groups["major"].Value, `
+                  $ManifestVersionMatch.Groups["minor"].Value, `
+                  $ManifestVersionMatch.Groups["patch"].Value
+              $Manifest = Get-Content $ManifestPath -Raw
+              $ManifestIdentityPattern = '(?s)(<assemblyIdentity\b(?=[^>]*\bname="x360ce")[^>]*\bversion=")[^"]+(")'
+              if (-not [regex]::IsMatch($Manifest, $ManifestIdentityPattern)) {
+                  Write-Error "Could not find the x360ce assemblyIdentity version in $ManifestPath."
+                  exit 1
+              }
+              $Manifest = [regex]::Replace($Manifest, $ManifestIdentityPattern, "`${1}$ManifestVersion`${2}", 1)
+              Set-Content -Path $ManifestPath -Value $Manifest -NoNewline
+          }
+
+          cargo generate-lockfile
+
+          git add Cargo.toml Cargo.lock
+          if (Test-Path $ManifestPath) {
+              git add $ManifestPath
+          }
+          git status --short
+          git commit --allow-empty -m $CommitMessage
+          git push origin $env:RELEASE_BRANCH
+
+      - name: Squash merge release branch before build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $DefaultBranch = "${{ github.event.repository.default_branch }}"
+          $CommitMessage = "chore: release $env:TAG"
+
+          git checkout $DefaultBranch
+          git pull --ff-only origin $DefaultBranch
+          git merge --squash $env:RELEASE_BRANCH
+          git diff --cached --quiet
+          $HasStagedChanges = $LASTEXITCODE -ne 0
+          if (-not $HasStagedChanges) {
+              git reset --hard HEAD
+              $MergedSha = git rev-parse HEAD
+              "MERGED_SHA=$MergedSha" >> $env:GITHUB_ENV
+              "RELEASE_BRANCH_WAS_MERGED=false" >> $env:GITHUB_ENV
+              Write-Host "Release branch $env:RELEASE_BRANCH has no version metadata changes to squash merge."
+              Write-Host "Using existing $DefaultBranch commit $MergedSha for the release build."
+              exit 0
+          }
+
+          git status --short
+          git commit -m $CommitMessage
+          git push origin $DefaultBranch
+          $MergedSha = git rev-parse HEAD
+          "MERGED_SHA=$MergedSha" >> $env:GITHUB_ENV
+          "RELEASE_BRANCH_WAS_MERGED=true" >> $env:GITHUB_ENV
+          Write-Host "Squash merged $env:RELEASE_BRANCH into $DefaultBranch at $MergedSha."
+
+      - name: Delete release branch after merge
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          git push origin --delete $env:RELEASE_BRANCH
+          $LocalReleaseBranch = git branch --list $env:RELEASE_BRANCH
+          if ($LocalReleaseBranch) {
+              git branch -D $env:RELEASE_BRANCH
+          }
+          Write-Host "Deleted temporary release branch $env:RELEASE_BRANCH."
+
+      - name: Build executable from merged release commit
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          cargo build --release --target $env:RUST_TARGET --bin x360ce
+
+          $BuiltExe = Join-Path $env:CARGO_TARGET_DIR "$env:RUST_TARGET\release\x360ce.exe"
+          if (-not (Test-Path $BuiltExe)) {
+              $FallbackExe = Join-Path "target" "$env:RUST_TARGET\release\x360ce.exe"
+              if (Test-Path $FallbackExe) {
+                  $BuiltExe = $FallbackExe
+              }
+          }
+
+          if (-not (Test-Path $BuiltExe)) {
+              Write-Host "Could not find the built executable at the expected path. Existing x360ce.exe files:"
+              Get-ChildItem -Path . -Recurse -Filter "x360ce.exe" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_.FullName }
+              Write-Error "Release executable was not found after cargo build."
+              exit 1
+          }
+
+          "BUILT_EXE=$BuiltExe" >> $env:GITHUB_ENV
+          Write-Host "Built executable: $BuiltExe"
+
+      - name: Prepare release asset
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $AssetTag = $env:TAG -replace '[^0-9A-Za-z._-]', '-'
+          $ExeName = "x360ce-$AssetTag-windows-x64.exe"
+          Copy-Item -LiteralPath $env:BUILT_EXE -Destination $ExeName -Force
+          "ASSET=$ExeName" >> $env:GITHUB_ENV
+          Write-Host "Prepared release asset: $ExeName"
+
+      - name: Create GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $GhArgs = @(
+              "release", "create", $env:TAG, $env:ASSET,
+              "--repo", "${{ github.repository }}",
+              "--target", $env:MERGED_SHA,
+              "--title", $env:RELEASE_TITLE,
+              "--generate-notes"
+          )
+
+          if ($env:IS_PRERELEASE -eq "true") {
+              $GhArgs += "--prerelease"
+          }
+
+          gh @GhArgs
