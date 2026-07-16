@@ -1502,15 +1502,15 @@ fn short_control_label(control: OutputControl) -> &'static str {
         OutputControl::Y => "Y",
         OutputControl::LeftShoulder => "LB",
         OutputControl::RightShoulder => "RB",
-        OutputControl::Back => "◀",
-        OutputControl::Start => "▶",
+        OutputControl::Back => "",
+        OutputControl::Start => "",
         OutputControl::Guide => "X",
         OutputControl::LeftThumb => "L3",
         OutputControl::RightThumb => "R3",
-        OutputControl::DpadUp => "▲",
-        OutputControl::DpadRight => "▶",
-        OutputControl::DpadDown => "▼",
-        OutputControl::DpadLeft => "◀",
+        OutputControl::DpadUp => "",
+        OutputControl::DpadRight => "",
+        OutputControl::DpadDown => "",
+        OutputControl::DpadLeft => "",
         OutputControl::LeftTrigger => "LT",
         OutputControl::RightTrigger => "RT",
         OutputControl::LeftStickX => "LX",
@@ -1587,6 +1587,53 @@ fn compact_surface(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) 
         .show(ui, add_contents);
 }
 
+#[derive(Clone, Copy)]
+enum DirectionIcon {
+    Up,
+    Right,
+    Down,
+    Left,
+}
+
+fn control_direction_icon(control: OutputControl) -> Option<DirectionIcon> {
+    match control {
+        OutputControl::DpadUp => Some(DirectionIcon::Up),
+        OutputControl::DpadRight | OutputControl::Start => Some(DirectionIcon::Right),
+        OutputControl::DpadDown => Some(DirectionIcon::Down),
+        OutputControl::DpadLeft | OutputControl::Back => Some(DirectionIcon::Left),
+        _ => None,
+    }
+}
+
+fn draw_direction_icon(
+    painter: &egui::Painter,
+    center: egui::Pos2,
+    direction: DirectionIcon,
+    color: Color32,
+    scale: f32,
+    stroke_width: f32,
+) {
+    let forward = match direction {
+        DirectionIcon::Up => egui::vec2(0.0, -1.0),
+        DirectionIcon::Right => egui::vec2(1.0, 0.0),
+        DirectionIcon::Down => egui::vec2(0.0, 1.0),
+        DirectionIcon::Left => egui::vec2(-1.0, 0.0),
+    };
+    let side = egui::vec2(-forward.y, forward.x);
+    let tip = center + forward * (scale * 0.55);
+    let tail = center - forward * (scale * 0.45);
+    let head = tip - forward * (scale * 0.45);
+    painter.line_segment([tail, tip], Stroke::new(stroke_width, color));
+    painter.line_segment(
+        [tip, head + side * (scale * 0.34)],
+        Stroke::new(stroke_width, color),
+    );
+    painter.line_segment(
+        [tip, head - side * (scale * 0.34)],
+        Stroke::new(stroke_width, color),
+    );
+}
+
 fn controller_control(
     app: &mut X360ceApp,
     ui: &mut egui::Ui,
@@ -1647,13 +1694,24 @@ fn controller_control(
     } else {
         Color32::from_rgb(143, 85, 14)
     };
-    ui.painter().text(
-        center,
-        Align2::CENTER_CENTER,
-        label,
-        FontId::proportional(if active { 10.0 } else { 9.0 }),
-        label_color,
-    );
+    if let Some(direction) = control_direction_icon(control) {
+        draw_direction_icon(
+            ui.painter(),
+            center,
+            direction,
+            label_color,
+            radius * 0.95,
+            if active { 2.4 } else { 1.9 },
+        );
+    } else {
+        ui.painter().text(
+            center,
+            Align2::CENTER_CENTER,
+            label,
+            FontId::proportional(if active { 10.0 } else { 9.0 }),
+            label_color,
+        );
+    }
     if !mapped {
         ui.painter().text(
             center + egui::vec2(radius * 0.8, -radius * 0.8),
@@ -1714,17 +1772,45 @@ fn draw_stick_controls(
         &format!("{name}3"),
     );
 
-    for (control, output_negative, offset, label, active) in [
-        (y_control, false, egui::vec2(0.0, -28.0), "↑", y_value > 0.15),
-        (x_control, false, egui::vec2(28.0, 0.0), "→", x_value > 0.15),
-        (y_control, true, egui::vec2(0.0, 28.0), "↓", y_value < -0.15),
-        (x_control, true, egui::vec2(-28.0, 0.0), "←", x_value < -0.15),
+    for (control, output_negative, offset, direction_id, direction, active) in [
+        (
+            y_control,
+            false,
+            egui::vec2(0.0, -28.0),
+            "up",
+            DirectionIcon::Up,
+            y_value > 0.15,
+        ),
+        (
+            x_control,
+            false,
+            egui::vec2(28.0, 0.0),
+            "right",
+            DirectionIcon::Right,
+            x_value > 0.15,
+        ),
+        (
+            y_control,
+            true,
+            egui::vec2(0.0, 28.0),
+            "down",
+            DirectionIcon::Down,
+            y_value < -0.15,
+        ),
+        (
+            x_control,
+            true,
+            egui::vec2(-28.0, 0.0),
+            "left",
+            DirectionIcon::Left,
+            x_value < -0.15,
+        ),
     ] {
         let marker_center = center + offset;
         let hit = egui::Rect::from_center_size(marker_center, egui::vec2(20.0, 20.0));
         let response = ui.interact(
             hit,
-            ui.make_persistent_id(("stick-direction", left, label)),
+            ui.make_persistent_id(("stick-direction", left, direction_id)),
             Sense::click(),
         );
         if response.double_clicked() {
@@ -1767,20 +1853,22 @@ fn draw_stick_controls(
                 },
             ),
         );
-        ui.painter().text(
+        let icon_color = if active {
+            Color32::from_rgb(18, 24, 21)
+        } else if selected {
+            Color32::WHITE
+        } else if mapped {
+            Color32::from_rgb(24, 29, 37)
+        } else {
+            Color32::from_rgb(143, 85, 14)
+        };
+        draw_direction_icon(
+            ui.painter(),
             marker_center,
-            Align2::CENTER_CENTER,
-            label,
-            FontId::proportional(if active { 11.0 } else { 10.0 }),
-            if active {
-                Color32::from_rgb(18, 24, 21)
-            } else if selected {
-                Color32::WHITE
-            } else if mapped {
-                Color32::from_rgb(24, 29, 37)
-            } else {
-                Color32::from_rgb(143, 85, 14)
-            },
+            direction,
+            icon_color,
+            7.0,
+            if active { 2.1 } else { 1.7 },
         );
         response.on_hover_text(format!(
             "{} {} output
@@ -1797,10 +1885,10 @@ fn compact_control_label(control: OutputControl) -> &'static str {
         OutputControl::RightShoulder => "RB",
         OutputControl::LeftThumb => "L3",
         OutputControl::RightThumb => "R3",
-        OutputControl::DpadUp => "D-pad ↑",
-        OutputControl::DpadRight => "D-pad →",
-        OutputControl::DpadDown => "D-pad ↓",
-        OutputControl::DpadLeft => "D-pad ←",
+        OutputControl::DpadUp => "D-pad Up",
+        OutputControl::DpadRight => "D-pad Right",
+        OutputControl::DpadDown => "D-pad Down",
+        OutputControl::DpadLeft => "D-pad Left",
         OutputControl::LeftTrigger => "LT",
         OutputControl::RightTrigger => "RT",
         OutputControl::LeftStickX => "Left X",
