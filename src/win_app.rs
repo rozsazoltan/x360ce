@@ -29,10 +29,10 @@ use crate::{
     wide::str_wide_null,
 };
 
-const DEFAULT_WINDOW_WIDTH: f32 = 1180.0;
-const DEFAULT_WINDOW_HEIGHT: f32 = 800.0;
-const MIN_WINDOW_WIDTH: f32 = 960.0;
-const MIN_WINDOW_HEIGHT: f32 = 680.0;
+const DEFAULT_WINDOW_WIDTH: f32 = 1320.0;
+const DEFAULT_WINDOW_HEIGHT: f32 = 900.0;
+const MIN_WINDOW_WIDTH: f32 = 1120.0;
+const MIN_WINDOW_HEIGHT: f32 = 780.0;
 const VISIBLE_POLL: Duration = Duration::from_millis(16);
 const HIDDEN_POLL: Duration = Duration::from_millis(120);
 const AUTO_UPDATE_INTERVAL_SECONDS: u64 = 60 * 60;
@@ -992,7 +992,13 @@ impl X360ceApp {
                     rect.left() + rect.width() * x,
                     rect.top() + rect.height() * y,
                 );
-                let radius = if control.is_trigger() { 13.0 } else { 11.0 };
+                let radius = if control.is_trigger() {
+                    13.0
+                } else if matches!(control, OutputControl::Start | OutputControl::Back | OutputControl::Guide) {
+                    17.0
+                } else {
+                    11.0
+                };
                 controller_control(
                     self,
                     ui,
@@ -1009,14 +1015,14 @@ impl X360ceApp {
                 ui,
                 &profile,
                 true,
-                egui::pos2(rect.left() + rect.width() * 0.365, rect.top() + rect.height() * 0.56),
+                egui::pos2(rect.left() + rect.width() * 0.365, rect.top() + rect.height() * 0.54),
             );
             draw_stick_controls(
                 self,
                 ui,
                 &profile,
                 false,
-                egui::pos2(rect.left() + rect.width() * 0.635, rect.top() + rect.height() * 0.56),
+                egui::pos2(rect.left() + rect.width() * 0.635, rect.top() + rect.height() * 0.54),
             );
         });
     }
@@ -1476,21 +1482,21 @@ fn draw_controller_body(ui: &egui::Ui, rect: egui::Rect) {
 
 fn controller_points() -> [(OutputControl, f32, f32); 15] {
     [
-        (OutputControl::LeftTrigger, 0.26, 0.11),
-        (OutputControl::RightTrigger, 0.74, 0.11),
-        (OutputControl::LeftShoulder, 0.32, 0.14),
-        (OutputControl::RightShoulder, 0.68, 0.14),
-        (OutputControl::Guide, 0.50, 0.27),
-        (OutputControl::Back, 0.43, 0.32),
-        (OutputControl::Start, 0.57, 0.32),
-        (OutputControl::Y, 0.76, 0.20),
-        (OutputControl::B, 0.84, 0.31),
-        (OutputControl::A, 0.76, 0.42),
-        (OutputControl::X, 0.68, 0.31),
-        (OutputControl::DpadUp, 0.25, 0.24),
-        (OutputControl::DpadRight, 0.32, 0.32),
-        (OutputControl::DpadDown, 0.25, 0.40),
-        (OutputControl::DpadLeft, 0.18, 0.32),
+        (OutputControl::LeftTrigger, 0.26, 0.09),
+        (OutputControl::RightTrigger, 0.74, 0.09),
+        (OutputControl::LeftShoulder, 0.33, 0.14),
+        (OutputControl::RightShoulder, 0.67, 0.14),
+        (OutputControl::Guide, 0.50, 0.29),
+        (OutputControl::Back, 0.42, 0.34),
+        (OutputControl::Start, 0.58, 0.34),
+        (OutputControl::Y, 0.763, 0.212),
+        (OutputControl::B, 0.836, 0.313),
+        (OutputControl::A, 0.763, 0.417),
+        (OutputControl::X, 0.686, 0.323),
+        (OutputControl::DpadUp, 0.22, 0.23),
+        (OutputControl::DpadRight, 0.29, 0.31),
+        (OutputControl::DpadDown, 0.22, 0.39),
+        (OutputControl::DpadLeft, 0.15, 0.31),
     ]
 }
 
@@ -1502,9 +1508,9 @@ fn short_control_label(control: OutputControl) -> &'static str {
         OutputControl::Y => "Y",
         OutputControl::LeftShoulder => "LB",
         OutputControl::RightShoulder => "RB",
-        OutputControl::Back => "",
-        OutputControl::Start => "",
-        OutputControl::Guide => "X",
+        OutputControl::Back => "BACK",
+        OutputControl::Start => "START",
+        OutputControl::Guide => "GUIDE",
         OutputControl::LeftThumb => "L3",
         OutputControl::RightThumb => "R3",
         OutputControl::DpadUp => "",
@@ -1549,7 +1555,7 @@ fn ui_root(app: &mut X360ceApp, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
             ui.horizontal(|ui| {
                 ui.add_space(16.0);
                 ui.vertical(|ui| {
-                    ui.set_max_width((ui.available_width() - 16.0).max(820.0));
+                    ui.set_max_width((ui.available_width() - 12.0).max(1040.0));
                     app.render_header(ui);
                     ui.add_space(8.0);
                     app.render_status(ui);
@@ -1598,9 +1604,9 @@ enum DirectionIcon {
 fn control_direction_icon(control: OutputControl) -> Option<DirectionIcon> {
     match control {
         OutputControl::DpadUp => Some(DirectionIcon::Up),
-        OutputControl::DpadRight | OutputControl::Start => Some(DirectionIcon::Right),
+        OutputControl::DpadRight => Some(DirectionIcon::Right),
         OutputControl::DpadDown => Some(DirectionIcon::Down),
-        OutputControl::DpadLeft | OutputControl::Back => Some(DirectionIcon::Left),
+        OutputControl::DpadLeft => Some(DirectionIcon::Left),
         _ => None,
     }
 }
@@ -1708,7 +1714,7 @@ fn controller_control(
             center,
             Align2::CENTER_CENTER,
             label,
-            FontId::proportional(if active { 10.0 } else { 9.0 }),
+            FontId::proportional(if matches!(control, OutputControl::Start | OutputControl::Back | OutputControl::Guide) { 7.2 } else if active { 10.0 } else { 9.0 }),
             label_color,
         );
     }
@@ -1806,7 +1812,7 @@ fn draw_stick_controls(
             x_value < -0.15,
         ),
     ] {
-        let marker_center = center + offset;
+        let marker_center = center + offset + egui::vec2(0.0, -4.0);
         let hit = egui::Rect::from_center_size(marker_center, egui::vec2(20.0, 20.0));
         let response = ui.interact(
             hit,
