@@ -6,22 +6,64 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: windows-quality-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   windows-quality:
     runs-on: windows-latest
     env:
+      CARGO_TARGET_DIR: .cache/cargo-target
+      CARGO_INCREMENTAL: 1
+      CARGO_TERM_COLOR: always
       CMAKE_POLICY_VERSION_MINIMUM: "3.5"
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+
+      - name: Restore Cargo cache
+        id: cargo-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ${{ env.CARGO_TARGET_DIR }}
+          key: windows-quality-v3-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml', 'tools/x360ce-dev/Cargo.toml', '.cargo/config.toml') }}-${{ github.sha }}
+          restore-keys: |
+            windows-quality-v3-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml', 'tools/x360ce-dev/Cargo.toml', '.cargo/config.toml') }}-
+            windows-quality-v3-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            windows-quality-v3-${{ runner.os }}-
+
+      - name: Fetch dependencies
+        run: cargo fetch --locked
+
       - name: Check formatting
         run: cargo fmt --all -- --check
-      - name: Check all targets
-        run: cargo check --all-targets
-      - name: Run Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      # Clippy already performs Cargo's all-targets type checking. Running a separate
+      # cargo check here would compile the same graph again with no extra coverage.
+      - name: Check all targets with Clippy
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
       - name: Run tests
-        run: cargo test --all-targets
+        run: cargo test --workspace --all-targets --all-features --locked --no-fail-fast
+
+      # A commit-specific save key lets later PR commits restore the newest target
+      # directory through restore-keys instead of being stuck on the first cache entry.
+      - name: Save Cargo cache
+        if: always() && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ${{ env.CARGO_TARGET_DIR }}
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
