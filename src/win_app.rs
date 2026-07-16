@@ -25,10 +25,10 @@ use crate::{
     wide::str_wide_null,
 };
 
-const DEFAULT_WINDOW_WIDTH: f32 = 1040.0;
-const DEFAULT_WINDOW_HEIGHT: f32 = 760.0;
-const MIN_WINDOW_WIDTH: f32 = 820.0;
-const MIN_WINDOW_HEIGHT: f32 = 620.0;
+const DEFAULT_WINDOW_WIDTH: f32 = 1180.0;
+const DEFAULT_WINDOW_HEIGHT: f32 = 800.0;
+const MIN_WINDOW_WIDTH: f32 = 960.0;
+const MIN_WINDOW_HEIGHT: f32 = 680.0;
 const VISIBLE_POLL: Duration = Duration::from_millis(16);
 const HIDDEN_POLL: Duration = Duration::from_millis(120);
 const AUTO_UPDATE_INTERVAL_SECONDS: u64 = 60 * 60;
@@ -643,6 +643,14 @@ impl eframe::App for X360ceApp {
             self.hide_window(ctx);
         }
 
+        if self.learning_control.is_some()
+            && ctx.input(|input| input.key_pressed(egui::Key::Escape))
+        {
+            self.learning_control = None;
+            self.status = "Mapping capture canceled.".to_owned();
+            self.mark_activity();
+        }
+
         self.poll_runtime();
         self.poll_tray(ctx);
         self.poll_activity(ctx);
@@ -707,23 +715,19 @@ impl X360ceApp {
         };
 
         let runtime_error = self.runtime.last_error.clone();
-        surface(ui, |ui| {
+        compact_surface(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
                 status_chip(ui, label, color, true);
                 status_chip(
                     ui,
                     if self.window_visible && self.state.forward_only_in_tray {
-                        "tray forwarding"
+                        "output isolated"
                     } else if self.state.emulation_enabled {
                         "virtual on"
                     } else {
                         "virtual off"
                     },
-                    if self.state.emulation_enabled {
-                        ACCENT_SOFT
-                    } else {
-                        SURFACE_MUTED
-                    },
+                    ACCENT_SOFT,
                     false,
                 );
                 status_chip(
@@ -732,20 +736,20 @@ impl X360ceApp {
                     SURFACE_MUTED,
                     false,
                 );
-                if self.last_update_check
+                if self
+                    .last_update_check
                     .as_ref()
                     .map(|check| check.is_update_available)
                     .unwrap_or(false)
                 {
                     status_chip(ui, "update available", WARNING, true);
                 }
-                ui.add_space(10.0);
-                ui.label(RichText::new(&self.status).size(12.0).color(MUTED));
-                if let Some(error) = &runtime_error {
-                    ui.label(RichText::new(error).size(12.0).color(DANGER));
-                }
+
+                ui.add_space(6.0);
+                ui.label(RichText::new(&self.status).size(11.0).color(MUTED));
+
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if !self.runtime.driver_installed && ui.button("Install ViGEmBus").clicked() {
+                    if !self.runtime.driver_installed && ui.button("Install driver").clicked() {
                         match driver::launch_installer_elevated() {
                             Ok(_) => {
                                 self.status =
@@ -774,6 +778,11 @@ impl X360ceApp {
                     }
                 });
             });
+
+            if let Some(error) = runtime_error {
+                ui.add_space(4.0);
+                ui.label(RichText::new(error).size(11.0).color(DANGER));
+            }
         });
     }
 
@@ -781,21 +790,33 @@ impl X360ceApp {
         surface(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Input controller").strong());
-                let selected_name = self
-                    .runtime
-                    .devices
-                    .iter()
-                    .find(|device| device.guid == self.state.selected_device_guid)
-                    .map(|device| device.name.clone())
-                    .unwrap_or_else(|| "No controller detected".to_owned());
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.label(
+                        RichText::new(format!("{} detected", self.runtime.devices.len()))
+                            .size(11.0)
+                            .color(MUTED),
+                    );
+                });
+            });
+            ui.add_space(6.0);
+
+            let selected_name = self
+                .runtime
+                .devices
+                .iter()
+                .find(|device| device.guid == self.state.selected_device_guid)
+                .map(|device| device.name.clone())
+                .unwrap_or_else(|| "No controller detected".to_owned());
+            let combo_width = (ui.available_width() - 76.0).clamp(180.0, 360.0);
+            ui.horizontal(|ui| {
                 egui::ComboBox::from_id_salt("controller-selector")
                     .selected_text(selected_name)
-                    .width(360.0)
+                    .width(combo_width)
                     .show_ui(ui, |ui| {
                         let devices = self.runtime.devices.clone();
                         for device in devices {
                             let label = format!(
-                                "{}  ·  {} axes / {} buttons / {} hats",
+                                "{} · {} axes · {} buttons · {} hats",
                                 device.name, device.axes, device.buttons, device.hats
                             );
                             if ui
@@ -814,13 +835,6 @@ impl X360ceApp {
                     self.status = "Refreshing controllers…".to_owned();
                     self.mark_activity();
                 }
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if let Some(instance_id) = self.runtime.selected_instance_id {
-                        ui.label(format!("ID {instance_id}"));
-                        ui.separator();
-                    }
-                    ui.label(format!("{} detected", self.runtime.devices.len()));
-                });
             });
         });
     }
@@ -828,13 +842,29 @@ impl X360ceApp {
 
     fn render_controller(&mut self, ui: &mut egui::Ui) {
         surface(ui, |ui| {
-            ui.label(RichText::new("Virtual Xbox 360 layout").strong());
-            ui.label(
-                RichText::new("Click Xbox control, then Learn and press your real input.")
-                    .color(MUTED),
-            );
-            ui.add_space(8.0);
-            let desired = egui::vec2(ui.available_width(), 390.0);
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.label(RichText::new("Virtual Xbox 360 layout").strong());
+                    ui.label(
+                        RichText::new("Click to select · double-click to learn · Esc to cancel")
+                            .size(11.0)
+                            .color(MUTED),
+                    );
+                });
+                if let Some(control) = self.learning_control {
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        status_chip(
+                            ui,
+                            &format!("learning {}", control.label()),
+                            ACCENT,
+                            true,
+                        );
+                    });
+                }
+            });
+
+            ui.add_space(6.0);
+            let desired = egui::vec2(ui.available_width(), 300.0);
             let (rect, _) = ui.allocate_exact_size(desired, Sense::hover());
             draw_controller_body(ui, rect);
 
@@ -844,63 +874,34 @@ impl X360ceApp {
                     rect.left() + rect.width() * x,
                     rect.top() + rect.height() * y,
                 );
-                let radius = match control {
-                    OutputControl::LeftTrigger | OutputControl::RightTrigger => 18.0,
-                    OutputControl::LeftStickX
-                    | OutputControl::LeftStickY
-                    | OutputControl::RightStickX
-                    | OutputControl::RightStickY => 24.0,
-                    _ => 16.0,
-                };
-                let hit = egui::Rect::from_center_size(
+                let radius = if control.is_trigger() { 17.0 } else { 15.0 };
+                controller_control(
+                    self,
+                    ui,
+                    &profile,
+                    control,
                     center,
-                    egui::vec2(radius * 2.3, radius * 2.3),
-                );
-                let response = ui.interact(
-                    hit,
-                    ui.make_persistent_id(("controller-control", control)),
-                    Sense::click(),
-                );
-                if response.clicked() {
-                    self.selected_control = control;
-                    self.mark_activity();
-                }
-
-                let entry = profile.entry(control);
-                let active = entry
-                    .map(|entry| control_preview_active(control, entry, &self.runtime.raw_state))
-                    .unwrap_or(false);
-                let selected = self.selected_control == control;
-                let fill = if active {
-                    SUCCESS
-                } else if selected {
-                    ACCENT
-                } else {
-                    Color32::from_rgba_unmultiplied(255, 255, 255, 232)
-                };
-                let stroke = if selected {
-                    Stroke::new(3.0, Color32::WHITE)
-                } else if active {
-                    Stroke::new(2.0, Color32::from_rgb(220, 247, 231))
-                } else {
-                    Stroke::new(1.0, Color32::from_rgb(198, 203, 213))
-                };
-                ui.painter().circle_filled(center, radius, fill);
-                ui.painter().circle_stroke(center, radius, stroke);
-                ui.painter().text(
-                    center,
-                    Align2::CENTER_CENTER,
+                    radius,
                     short_control_label(control),
-                    FontId::proportional(if control.is_axis() { 9.0 } else { 11.0 }),
-                    if active || selected { Color32::WHITE } else { TEXT },
                 );
-                response.on_hover_text(format!(
-                    "{}
-Mapped from: {}",
-                    control.label(),
-                    entry_label_for(&profile, control)
-                ));
             }
+
+            draw_stick_controls(
+                self,
+                ui,
+                &profile,
+                rect,
+                true,
+                egui::pos2(rect.left() + rect.width() * 0.34, rect.top() + rect.height() * 0.72),
+            );
+            draw_stick_controls(
+                self,
+                ui,
+                &profile,
+                rect,
+                false,
+                egui::pos2(rect.left() + rect.width() * 0.62, rect.top() + rect.height() * 0.72),
+            );
         });
     }
 
@@ -909,52 +910,47 @@ Mapped from: {}",
         surface(ui, |ui| {
             let control = self.selected_control;
             let profile = self.current_profile();
-            ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    ui.label(RichText::new(control.label()).size(18.0).strong());
-                    ui.label(RichText::new(entry_label_for(&profile, control)).color(MUTED));
-                });
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if ui.button("Clear").clicked() {
-                        self.clear_mapping(control);
-                    }
-                    if ui.button("Learn").clicked() {
-                        self.begin_learning(control);
-                    }
-                });
-            });
 
-            ui.add_space(8.0);
-            let learning = self.learning_control == Some(control);
-            let detected_label = primary_live_input_label(&self.runtime.raw_state);
-            ui.horizontal_wrapped(|ui| {
-                if learning {
-                    status_chip(ui, "learning", ACCENT, true);
-                }
-                ui.label(RichText::new(format!("detected: {detected_label}")).color(MUTED));
-            });
-            if learning {
-                ui.add_space(6.0);
-                if ui.button("Cancel learning").clicked() {
-                    self.learning_control = None;
-                    self.status = "Mapping capture canceled.".to_owned();
-                }
+            let title = ui.add(
+                egui::Label::new(RichText::new(control.label()).size(18.0).strong())
+                    .sense(Sense::click()),
+            );
+            if title.double_clicked() {
+                self.begin_learning(control);
             }
+            ui.label(RichText::new(entry_label_for(&profile, control)).color(MUTED));
+
+            ui.add_space(6.0);
+            ui.horizontal_wrapped(|ui| {
+                if ui.button("Learn").clicked() {
+                    self.begin_learning(control);
+                }
+                if ui.button("Clear").clicked() {
+                    self.clear_mapping(control);
+                }
+                ui.label(
+                    RichText::new(format!(
+                        "Detected: {}",
+                        primary_live_input_label(&self.runtime.raw_state)
+                    ))
+                    .size(11.0)
+                    .color(MUTED),
+                );
+            });
 
             if control.is_axis() || control.is_trigger() {
-                ui.add_space(10.0);
+                ui.add_space(8.0);
                 let mut changed = false;
                 {
                     let mapping = self.current_profile_mut().entry_mut(control);
-                    changed |= ui.checkbox(&mut mapping.invert, "Invert").changed();
-                    if control.is_trigger() {
-                        changed |= ui
-                            .checkbox(&mut mapping.centered_axis, "Split axis")
-                            .on_hover_text(
-                                "Enable when both triggers share one centered axis.",
-                            )
-                            .changed();
-                    }
+                    ui.horizontal_wrapped(|ui| {
+                        changed |= ui.checkbox(&mut mapping.invert, "Invert").changed();
+                        if control.is_trigger() {
+                            changed |= ui
+                                .checkbox(&mut mapping.centered_axis, "Split axis")
+                                .changed();
+                        }
+                    });
                     changed |= ui
                         .add(
                             egui::Slider::new(&mut mapping.deadzone, 0.0..=0.5)
@@ -975,60 +971,47 @@ Mapped from: {}",
                     self.save();
                     self.mark_activity();
                 }
-
-                let value = self
-                    .current_profile()
-                    .entry(control)
-                    .map(|entry| {
-                        if control.is_trigger() {
-                            mapper::trigger_preview(entry, &self.runtime.raw_state)
-                        } else {
-                            mapper::axis_preview(entry, &self.runtime.raw_state)
-                        }
-                    })
-                    .unwrap_or_default();
-                let progress = if control.is_trigger() {
-                    value.clamp(0.0, 1.0)
-                } else {
-                    ((value + 1.0) * 0.5).clamp(0.0, 1.0)
-                };
-                ui.add_space(8.0);
-                ui.add(egui::ProgressBar::new(progress).show_percentage());
             }
 
-            ui.add_space(10.0);
+            ui.add_space(8.0);
             ui.label(RichText::new("Mappings").strong());
-            ui.add_space(6.0);
+            ui.label(
+                RichText::new("Double-click any row to relearn it.")
+                    .size(10.0)
+                    .color(MUTED),
+            );
+            ui.add_space(4.0);
+
             let controls: Vec<OutputControl> = OutputControl::BUTTONS
                 .into_iter()
                 .chain(OutputControl::ANALOGS)
                 .collect();
             let split = (controls.len() + 1) / 2;
             ui.columns(2, |columns| {
-                for (col_index, chunk) in controls.chunks(split).enumerate() {
-                    columns[col_index].vertical(|ui| {
-                        for control in chunk {
+                for (column_index, chunk) in controls.chunks(split).enumerate() {
+                    columns[column_index].vertical(|ui| {
+                        for item in chunk {
                             let active = profile
-                                .entry(*control)
+                                .entry(*item)
                                 .map(|entry| {
-                                    control_preview_active(*control, entry, &self.runtime.raw_state)
+                                    control_preview_active(*item, entry, &self.runtime.raw_state)
                                 })
                                 .unwrap_or(false);
                             let label = format!(
-                                "{}  ·  {}",
-                                control.label(),
-                                entry_label_for(&profile, *control)
+                                "{} · {}",
+                                compact_control_label(*item),
+                                entry_label_for(&profile, *item)
                             );
                             let rich = if active {
                                 RichText::new(label).strong().color(SUCCESS)
                             } else {
-                                RichText::new(label).color(TEXT)
+                                RichText::new(label).size(11.0).color(TEXT)
                             };
-                            if ui
-                                .selectable_label(self.selected_control == *control, rich)
-                                .clicked()
-                            {
-                                self.selected_control = *control;
+                            let response = ui.selectable_label(self.selected_control == *item, rich);
+                            if response.double_clicked() {
+                                self.begin_learning(*item);
+                            } else if response.clicked() {
+                                self.selected_control = *item;
                                 self.mark_activity();
                             }
                         }
@@ -1040,32 +1023,43 @@ Mapped from: {}",
 
     fn render_raw_inputs(&mut self, ui: &mut egui::Ui) {
         surface(ui, |ui| {
-            ui.label(RichText::new("Live physical input").strong());
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Live physical input").strong());
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.label(
+                        RichText::new(primary_live_input_label(&self.runtime.raw_state))
+                            .size(11.0)
+                            .color(MUTED),
+                    );
+                });
+            });
             ui.add_space(6.0);
+
             for (index, value) in self.runtime.raw_state.axes.iter().enumerate() {
                 let normalized = normalize_axis(*value);
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(format!("Axis {}", index + 1)).size(12.0));
+                    ui.label(RichText::new(format!("A{}", index + 1)).size(11.0));
+                    let bar_width = (ui.available_width() - 58.0).max(100.0);
                     ui.add(
                         egui::ProgressBar::new(((normalized + 1.0) * 0.5).clamp(0.0, 1.0))
-                            .desired_width(180.0),
+                            .desired_width(bar_width),
                     );
-                    ui.label(format!("{normalized:.2}"));
+                    ui.label(RichText::new(format!("{normalized:.2}")).size(10.0));
                 });
             }
+
             ui.add_space(6.0);
             ui.horizontal_wrapped(|ui| {
                 for (index, pressed) in self.runtime.raw_state.buttons.iter().enumerate() {
-                    let text = format!("B{}", index + 1);
                     status_chip(
                         ui,
-                        &text,
+                        &format!("B{}", index + 1),
                         if *pressed { SUCCESS } else { SURFACE_MUTED },
                         *pressed,
                     );
                 }
             });
-            ui.add_space(6.0);
+            ui.add_space(5.0);
             ui.horizontal_wrapped(|ui| {
                 for (index, hat) in self.runtime.raw_state.hats.iter().enumerate() {
                     status_chip(
@@ -1086,113 +1080,57 @@ Mapped from: {}",
     fn render_settings(&mut self, ui: &mut egui::Ui) {
         surface(ui, |ui| {
             ui.label(RichText::new("Settings and updates").strong());
+            ui.add_space(6.0);
 
-            let previous_forward_only_in_tray = self.state.forward_only_in_tray;
-            let mut settings_changed = false;
-            settings_changed |= ui
-                .checkbox(
-                    &mut self.state.forward_only_in_tray,
-                    "Forward controller only while app is in tray",
-                )
-                .on_hover_text(
-                    "Visible configuration window pauses virtual Xbox output. Tray mode reconnects it.",
-                )
-                .changed();
-            settings_changed |= ui
-                .checkbox(&mut self.state.auto_tray_enabled, "Auto tray after inactivity")
-                .changed();
-            settings_changed |= ui
-                .checkbox(&mut self.state.start_in_tray, "Start in tray")
-                .changed();
-            settings_changed |= ui
-                .checkbox(&mut self.state.include_prereleases, "Include prereleases")
-                .changed();
+            let mut changed = false;
+            ui.columns(2, |columns| {
+                changed |= columns[0]
+                    .checkbox(&mut self.state.auto_tray_enabled, "Auto tray")
+                    .changed();
+                changed |= columns[0]
+                    .checkbox(&mut self.state.start_in_tray, "Start in tray")
+                    .changed();
+                changed |= columns[0]
+                    .checkbox(&mut self.state.forward_only_in_tray, "Forward only in tray")
+                    .changed();
+                changed |= columns[1]
+                    .checkbox(
+                        &mut self.state.block_game_bar_controller_button,
+                        "Block Game Bar button",
+                    )
+                    .changed();
+                changed |= columns[1]
+                    .checkbox(&mut self.state.include_prereleases, "Prereleases")
+                    .changed();
+            });
 
-            let game_bar_changed = ui
-                .checkbox(
-                    &mut self.state.block_game_bar_controller_button,
-                    "Block controller button from opening Xbox Game Bar",
-                )
-                .on_hover_text(
-                    "Disables Windows Gaming > Game Bar > Allow your controller to open Game Bar.",
-                )
-                .changed();
-
-            if game_bar_changed {
-                match game_bar::set_controller_button_enabled(
+            if changed {
+                self.sync_forwarding_mode();
+                if let Err(error) = game_bar::set_controller_button_enabled(
                     !self.state.block_game_bar_controller_button,
                 ) {
-                    Ok(()) => {
-                        self.status = if self.state.block_game_bar_controller_button {
-                            "Xbox Game Bar controller shortcut disabled.".to_owned()
-                        } else {
-                            "Xbox Game Bar controller shortcut enabled.".to_owned()
-                        };
-                    }
-                    Err(error) => {
-                        self.status = format!("Xbox Game Bar shortcut update failed: {error}");
-                    }
+                    self.status = format!("Xbox Game Bar shortcut update failed: {error}");
                 }
-                settings_changed = true;
-            }
-
-            if previous_forward_only_in_tray != self.state.forward_only_in_tray {
-                self.sync_forwarding_mode();
-                self.status = if self.state.forward_only_in_tray && self.window_visible {
-                    "Configuration isolation active. Virtual output resumes in tray.".to_owned()
-                } else {
-                    "Forwarding mode updated.".to_owned()
-                };
-            }
-
-            if settings_changed {
                 self.mark_activity();
                 self.save();
                 self.sync_tray();
             }
 
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Idle").color(MUTED));
-                if ui
-                    .add(egui::Slider::new(
-                        &mut self.state.auto_tray_idle_seconds,
-                        10..=600,
-                    ))
-                    .changed()
-                {
-                    self.mark_activity();
-                    self.save();
-                }
-                ui.label(RichText::new("Countdown").color(MUTED));
-                if ui
-                    .add(egui::Slider::new(
-                        &mut self.state.auto_tray_countdown_seconds,
-                        3..=30,
-                    ))
-                    .changed()
-                {
-                    self.mark_activity();
-                    self.save();
-                }
-            });
-
-            ui.add_space(8.0);
+            ui.add_space(6.0);
             ui.horizontal_wrapped(|ui| {
                 if ui
                     .add_enabled(
                         !config::is_dev_build(),
                         egui::Button::new(if self.state.startup_enabled {
-                            "Disable Windows startup"
+                            "Disable startup"
                         } else {
-                            "Enable Windows startup"
+                            "Enable startup"
                         }),
                     )
                     .clicked()
                 {
                     self.toggle_startup();
                 }
-
                 if ui
                     .add_enabled(
                         !config::is_dev_build() && self.update_rx.is_none(),
@@ -1217,41 +1155,24 @@ Mapped from: {}",
                 {
                     self.install_update();
                 }
+                if ui.button("Open releases").clicked() {
+                    if let Err(error) = updater::open_releases_page() {
+                        self.status = format!("Could not open releases: {error}");
+                    }
+                }
             });
 
-            ui.add_space(6.0);
+            ui.add_space(5.0);
             if config::is_dev_build() {
                 ui.label(
-                    RichText::new("Automatic update checks are disabled in dev builds.")
+                    RichText::new("Update checks disabled in dev builds.")
+                        .size(11.0)
                         .color(MUTED),
                 );
             } else if let Some(check) = &self.last_update_check {
-                ui.label(RichText::new(update_status(check)).color(MUTED));
+                ui.label(RichText::new(update_status(check)).size(11.0).color(MUTED));
             } else {
-                ui.label(RichText::new("No update check yet.").color(MUTED));
-            }
-
-            ui.add_space(6.0);
-            ui.label(
-                RichText::new(
-                    "Complete hiding of original physical controller from every Windows app requires HidHide. x360ce now pauses its virtual output while configuration window is visible.",
-                )
-                .size(10.5)
-                .color(MUTED),
-            );
-
-            ui.add_space(8.0);
-            match config::state_path() {
-                Ok(path) => {
-                    ui.label(
-                        RichText::new(path.display().to_string())
-                            .size(10.0)
-                            .color(MUTED),
-                    );
-                }
-                Err(error) => {
-                    ui.label(RichText::new(error.to_string()).color(DANGER));
-                }
+                ui.label(RichText::new("No update check yet.").size(11.0).color(MUTED));
             }
         });
     }
@@ -1268,140 +1189,127 @@ fn surface(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
 
 fn draw_controller_body(ui: &egui::Ui, rect: egui::Rect) {
     let painter = ui.painter();
-    let body = rect.shrink2(egui::vec2(rect.width() * 0.06, rect.height() * 0.08));
-    let shell = Color32::from_rgb(42, 46, 55);
-    let shell_dark = Color32::from_rgb(28, 32, 39);
-    let shell_light = Color32::from_rgb(72, 78, 90);
-    let metal = Color32::from_rgb(232, 235, 239);
-    let metal_dark = Color32::from_rgb(205, 210, 216);
+    let shell = Color32::from_rgb(38, 42, 50);
+    let shell_dark = Color32::from_rgb(25, 28, 34);
+    let shell_mid = Color32::from_rgb(67, 73, 84);
+    let silver = Color32::from_rgb(223, 227, 232);
+    let silver_dark = Color32::from_rgb(180, 187, 196);
 
-    let core = egui::Rect::from_center_size(
-        egui::pos2(body.center().x, body.center().y + 2.0),
-        egui::vec2(body.width() * 0.72, body.height() * 0.70),
+    let body = egui::Rect::from_center_size(
+        egui::pos2(rect.center().x, rect.center().y + 5.0),
+        egui::vec2(rect.width() * 0.74, rect.height() * 0.70),
     );
-    painter.rect_filled(core, 84, shell);
+
     painter.circle_filled(
-        egui::pos2(core.left() + 48.0, core.bottom() - 10.0),
-        84.0,
+        egui::pos2(body.left() + body.width() * 0.12, body.bottom() - 4.0),
+        body.height() * 0.34,
         shell,
     );
     painter.circle_filled(
-        egui::pos2(core.right() - 48.0, core.bottom() - 10.0),
-        84.0,
+        egui::pos2(body.right() - body.width() * 0.12, body.bottom() - 4.0),
+        body.height() * 0.34,
         shell,
     );
+    painter.rect_filled(body, 76, shell);
     painter.rect_stroke(
-        core,
-        84,
-        Stroke::new(2.0, shell_light),
-        egui::StrokeKind::Middle,
+        body,
+        76,
+        Stroke::new(2.0, shell_mid),
+        egui::StrokeKind::Inside,
     );
 
-    let highlight = egui::Rect::from_center_size(
-        egui::pos2(core.center().x, core.top() + 38.0),
-        egui::vec2(core.width() * 0.34, 18.0),
-    );
-    painter.rect_filled(highlight, 9, shell_light);
     painter.rect_filled(
         egui::Rect::from_center_size(
-            egui::pos2(core.left() + core.width() * 0.24, core.top() + 8.0),
-            egui::vec2(74.0, 16.0),
+            egui::pos2(body.center().x, body.top() + 30.0),
+            egui::vec2(body.width() * 0.35, 16.0),
         ),
         8,
-        shell_dark,
-    );
-    painter.rect_filled(
-        egui::Rect::from_center_size(
-            egui::pos2(core.right() - core.width() * 0.24, core.top() + 8.0),
-            egui::vec2(74.0, 16.0),
-        ),
-        8,
-        shell_dark,
+        shell_mid,
     );
 
-    let left_stick = egui::pos2(core.left() + core.width() * 0.34, core.bottom() - 70.0);
-    let right_stick = egui::pos2(core.right() - core.width() * 0.34, core.bottom() - 70.0);
-    for center in [left_stick, right_stick] {
-        painter.circle_filled(center, 30.0, metal);
-        painter.circle_filled(center, 18.0, metal_dark);
-        painter.circle_stroke(center, 30.0, Stroke::new(1.5, Color32::WHITE));
+    for x in [0.24, 0.76] {
+        painter.rect_filled(
+            egui::Rect::from_center_size(
+                egui::pos2(body.left() + body.width() * x, body.top() + 5.0),
+                egui::vec2(72.0, 15.0),
+            ),
+            7,
+            shell_dark,
+        );
     }
 
-    let dpad_center = egui::pos2(core.left() + core.width() * 0.21, core.center().y + 12.0);
+    let dpad = egui::pos2(body.left() + body.width() * 0.22, body.center().y + 4.0);
     painter.rect_filled(
-        egui::Rect::from_center_size(dpad_center, egui::vec2(84.0, 24.0)),
-        11,
-        metal,
+        egui::Rect::from_center_size(dpad, egui::vec2(72.0, 22.0)),
+        8,
+        silver,
     );
     painter.rect_filled(
-        egui::Rect::from_center_size(dpad_center, egui::vec2(24.0, 84.0)),
-        11,
-        metal,
+        egui::Rect::from_center_size(dpad, egui::vec2(22.0, 72.0)),
+        8,
+        silver,
     );
-    painter.rect_stroke(
-        egui::Rect::from_center_size(dpad_center, egui::vec2(84.0, 24.0)),
-        11,
-        Stroke::new(1.0, metal_dark),
-        egui::StrokeKind::Middle,
-    );
-    painter.rect_stroke(
-        egui::Rect::from_center_size(dpad_center, egui::vec2(24.0, 84.0)),
-        11,
-        Stroke::new(1.0, metal_dark),
-        egui::StrokeKind::Middle,
-    );
+    painter.circle_stroke(dpad, 39.0, Stroke::new(1.5, silver_dark));
 
-    let buttons = [
-        (egui::pos2(core.right() - core.width() * 0.18, core.center().y - 24.0), Color32::from_rgb(232, 192, 48)),
-        (egui::pos2(core.right() - core.width() * 0.11, core.center().y + 18.0), Color32::from_rgb(224, 90, 84)),
-        (egui::pos2(core.right() - core.width() * 0.18, core.center().y + 60.0), Color32::from_rgb(91, 165, 58)),
-        (egui::pos2(core.right() - core.width() * 0.25, core.center().y + 18.0), Color32::from_rgb(66, 121, 220)),
-    ];
-    for (center, color) in buttons {
-        painter.circle_filled(center, 20.0, color);
-        painter.circle_stroke(center, 20.0, Stroke::new(1.0, Color32::WHITE));
+    for (center, color) in [
+        (
+            egui::pos2(body.right() - body.width() * 0.18, body.center().y - 25.0),
+            Color32::from_rgb(234, 194, 42),
+        ),
+        (
+            egui::pos2(body.right() - body.width() * 0.11, body.center().y + 14.0),
+            Color32::from_rgb(222, 76, 72),
+        ),
+        (
+            egui::pos2(body.right() - body.width() * 0.18, body.center().y + 53.0),
+            Color32::from_rgb(83, 161, 55),
+        ),
+        (
+            egui::pos2(body.right() - body.width() * 0.25, body.center().y + 14.0),
+            Color32::from_rgb(58, 115, 215),
+        ),
+    ] {
+        painter.circle_filled(center, 18.0, color);
+        painter.circle_stroke(center, 18.0, Stroke::new(1.5, Color32::WHITE));
     }
 
     painter.circle_filled(
-        egui::pos2(core.center().x, core.center().y - 18.0),
+        egui::pos2(body.center().x, body.center().y - 17.0),
         18.0,
-        metal,
+        silver,
     );
-    painter.circle_filled(
-        egui::pos2(core.center().x - 36.0, core.center().y + 4.0),
-        16.0,
-        metal,
+    painter.circle_stroke(
+        egui::pos2(body.center().x, body.center().y - 17.0),
+        18.0,
+        Stroke::new(2.0, Color32::from_rgb(111, 187, 58)),
     );
-    painter.circle_filled(
-        egui::pos2(core.center().x + 36.0, core.center().y + 4.0),
-        16.0,
-        metal,
-    );
+
+    for center in [
+        egui::pos2(body.center().x - 38.0, body.center().y + 3.0),
+        egui::pos2(body.center().x + 38.0, body.center().y + 3.0),
+    ] {
+        painter.circle_filled(center, 12.0, silver);
+        painter.circle_stroke(center, 12.0, Stroke::new(1.0, silver_dark));
+    }
 }
 
-fn controller_points() -> [(OutputControl, f32, f32); 21] {
+fn controller_points() -> [(OutputControl, f32, f32); 15] {
     [
-        (OutputControl::LeftTrigger, 0.21, 0.17),
-        (OutputControl::RightTrigger, 0.79, 0.17),
-        (OutputControl::LeftShoulder, 0.29, 0.21),
-        (OutputControl::RightShoulder, 0.71, 0.21),
+        (OutputControl::LeftTrigger, 0.20, 0.13),
+        (OutputControl::RightTrigger, 0.80, 0.13),
+        (OutputControl::LeftShoulder, 0.29, 0.19),
+        (OutputControl::RightShoulder, 0.71, 0.19),
         (OutputControl::Guide, 0.50, 0.40),
-        (OutputControl::Back, 0.43, 0.46),
-        (OutputControl::Start, 0.57, 0.46),
-        (OutputControl::Y, 0.75, 0.43),
-        (OutputControl::B, 0.82, 0.53),
+        (OutputControl::Back, 0.43, 0.47),
+        (OutputControl::Start, 0.57, 0.47),
+        (OutputControl::Y, 0.75, 0.41),
+        (OutputControl::B, 0.82, 0.52),
         (OutputControl::A, 0.75, 0.63),
-        (OutputControl::X, 0.68, 0.53),
-        (OutputControl::DpadUp, 0.24, 0.50),
-        (OutputControl::DpadRight, 0.29, 0.57),
+        (OutputControl::X, 0.68, 0.52),
+        (OutputControl::DpadUp, 0.24, 0.48),
+        (OutputControl::DpadRight, 0.29, 0.56),
         (OutputControl::DpadDown, 0.24, 0.64),
-        (OutputControl::DpadLeft, 0.19, 0.57),
-        (OutputControl::LeftStickX, 0.31, 0.76),
-        (OutputControl::LeftStickY, 0.38, 0.76),
-        (OutputControl::RightStickX, 0.58, 0.76),
-        (OutputControl::RightStickY, 0.65, 0.76),
-        (OutputControl::LeftThumb, 0.345, 0.86),
-        (OutputControl::RightThumb, 0.615, 0.86),
+        (OutputControl::DpadLeft, 0.19, 0.56),
     ]
 }
 
@@ -1444,34 +1352,204 @@ fn ui_root(app: &mut X360ceApp, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            ui.add_space(14.0);
+            ui.add_space(12.0);
             ui.horizontal(|ui| {
-                ui.add_space(18.0);
+                ui.add_space(16.0);
                 ui.vertical(|ui| {
-                    ui.set_max_width((ui.available_width() - 18.0).max(760.0));
+                    ui.set_max_width((ui.available_width() - 16.0).max(820.0));
                     app.render_header(ui);
-                    ui.add_space(10.0);
+                    ui.add_space(8.0);
                     app.render_status(ui);
-                    ui.add_space(10.0);
+                    ui.add_space(8.0);
+
                     ui.columns(2, |columns| {
                         let (left, right) = columns.split_at_mut(1);
-                        left[0].set_width(left[0].available_width());
-                        app.render_controller(&mut left[0]);
+                        left[0].vertical(|ui| {
+                            app.render_controller(ui);
+                            ui.add_space(8.0);
+                            app.render_raw_inputs(ui);
+                        });
                         right[0].vertical(|ui| {
                             app.render_device_bar(ui);
-                            ui.add_space(10.0);
+                            ui.add_space(8.0);
                             app.render_mapping_editor(ui);
-                            ui.add_space(10.0);
-                            app.render_raw_inputs(ui);
-                            ui.add_space(10.0);
+                            ui.add_space(8.0);
                             app.render_settings(ui);
                         });
                     });
-                    ui.add_space(14.0);
+                    ui.add_space(12.0);
                 });
             });
         });
     app.render_countdown(ui.ctx());
+}
+
+
+fn compact_surface(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
+    egui::Frame::new()
+        .fill(SURFACE)
+        .stroke(Stroke::new(1.0, BORDER))
+        .corner_radius(12)
+        .inner_margin(egui::Margin::symmetric(12, 8))
+        .show(ui, add_contents);
+}
+
+fn controller_control(
+    app: &mut X360ceApp,
+    ui: &mut egui::Ui,
+    profile: &ControllerProfile,
+    control: OutputControl,
+    center: egui::Pos2,
+    radius: f32,
+    label: &str,
+) {
+    let hit = egui::Rect::from_center_size(center, egui::vec2(radius * 2.4, radius * 2.4));
+    let response = ui.interact(
+        hit,
+        ui.make_persistent_id(("controller-control", control)),
+        Sense::click(),
+    );
+    if response.double_clicked() {
+        app.begin_learning(control);
+    } else if response.clicked() {
+        app.selected_control = control;
+        app.mark_activity();
+    }
+
+    let active = profile
+        .entry(control)
+        .map(|entry| control_preview_active(control, entry, &app.runtime.raw_state))
+        .unwrap_or(false);
+    let selected = app.selected_control == control;
+    let fill = if active {
+        SUCCESS
+    } else if selected {
+        ACCENT
+    } else {
+        Color32::from_rgba_unmultiplied(250, 251, 253, 238)
+    };
+    ui.painter().circle_filled(center, radius, fill);
+    ui.painter().circle_stroke(
+        center,
+        radius,
+        Stroke::new(
+            if selected { 2.5 } else { 1.0 },
+            if active || selected { Color32::WHITE } else { BORDER },
+        ),
+    );
+    ui.painter().text(
+        center,
+        Align2::CENTER_CENTER,
+        label,
+        FontId::proportional(10.0),
+        if active || selected { Color32::WHITE } else { TEXT },
+    );
+    response.on_hover_text(format!(
+        "{}\n{}\nDouble-click to learn",
+        control.label(),
+        entry_label_for(profile, control)
+    ));
+}
+
+fn draw_stick_controls(
+    app: &mut X360ceApp,
+    ui: &mut egui::Ui,
+    profile: &ControllerProfile,
+    _rect: egui::Rect,
+    left: bool,
+    center: egui::Pos2,
+) {
+    let (x_control, y_control, click_control, name) = if left {
+        (
+            OutputControl::LeftStickX,
+            OutputControl::LeftStickY,
+            OutputControl::LeftThumb,
+            "L",
+        )
+    } else {
+        (
+            OutputControl::RightStickX,
+            OutputControl::RightStickY,
+            OutputControl::RightThumb,
+            "R",
+        )
+    };
+
+    let x_value = profile
+        .entry(x_control)
+        .map(|entry| mapper::axis_preview(entry, &app.runtime.raw_state))
+        .unwrap_or_default();
+    let y_value = profile
+        .entry(y_control)
+        .map(|entry| mapper::axis_preview(entry, &app.runtime.raw_state))
+        .unwrap_or_default();
+
+    ui.painter().circle_filled(center, 28.0, Color32::from_rgb(224, 228, 233));
+    ui.painter().circle_filled(center, 17.0, Color32::from_rgb(184, 191, 201));
+    ui.painter().circle_stroke(center, 28.0, Stroke::new(1.5, Color32::WHITE));
+
+    controller_control(app, ui, profile, click_control, center, 13.0, &format!("{name}3"));
+
+    for (control, offset, label, active) in [
+        (y_control, egui::vec2(0.0, -38.0), "↑", y_value < -0.15),
+        (x_control, egui::vec2(38.0, 0.0), "→", x_value > 0.15),
+        (y_control, egui::vec2(0.0, 38.0), "↓", y_value > 0.15),
+        (x_control, egui::vec2(-38.0, 0.0), "←", x_value < -0.15),
+    ] {
+        let marker_center = center + offset;
+        let hit = egui::Rect::from_center_size(marker_center, egui::vec2(24.0, 24.0));
+        let response = ui.interact(
+            hit,
+            ui.make_persistent_id(("stick-direction", left, label)),
+            Sense::click(),
+        );
+        if response.double_clicked() {
+            app.begin_learning(control);
+        } else if response.clicked() {
+            app.selected_control = control;
+            app.mark_activity();
+        }
+        let selected = app.selected_control == control;
+        ui.painter().circle_filled(
+            marker_center,
+            11.0,
+            if active {
+                SUCCESS
+            } else if selected {
+                ACCENT
+            } else {
+                Color32::from_rgba_unmultiplied(250, 251, 253, 232)
+            },
+        );
+        ui.painter().text(
+            marker_center,
+            Align2::CENTER_CENTER,
+            label,
+            FontId::proportional(11.0),
+            if active || selected { Color32::WHITE } else { TEXT },
+        );
+        response.on_hover_text(format!("{} · double-click to learn", control.label()));
+    }
+}
+
+fn compact_control_label(control: OutputControl) -> &'static str {
+    match control {
+        OutputControl::LeftShoulder => "LB",
+        OutputControl::RightShoulder => "RB",
+        OutputControl::LeftThumb => "L3",
+        OutputControl::RightThumb => "R3",
+        OutputControl::DpadUp => "D-pad ↑",
+        OutputControl::DpadRight => "D-pad →",
+        OutputControl::DpadDown => "D-pad ↓",
+        OutputControl::DpadLeft => "D-pad ←",
+        OutputControl::LeftTrigger => "LT",
+        OutputControl::RightTrigger => "RT",
+        OutputControl::LeftStickX => "Left X",
+        OutputControl::LeftStickY => "Left Y",
+        OutputControl::RightStickX => "Right X",
+        OutputControl::RightStickY => "Right Y",
+        _ => control.label(),
+    }
 }
 
 fn status_chip(ui: &mut egui::Ui, text: &str, fill: Color32, strong: bool) {

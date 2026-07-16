@@ -155,6 +155,14 @@ assets/x360ce.ico
 
 Icon uses a clean controller mark with balanced proportions and four face buttons. Same visual identity is used for executable, title bar, taskbar, and tray.
 
+## Controller mapping UI
+
+- Compact Xbox 360 layout with live button, trigger, D-pad, stick direction, and stick-click feedback.
+- Single click selects a virtual control. Double click starts input learning. Escape cancels learning.
+- Live physical input stays below the virtual layout and uses fixed-size indicators to avoid layout jumping.
+- Virtual output is isolated while the configuration window is open and resumes in tray mode.
+- Update controls remain visible; automatic checks stay disabled for development builds.
+
 ## Get started
 
 Recommended layout:
