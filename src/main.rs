@@ -1,4 +1,4 @@
-#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod config;
 mod model;
@@ -27,6 +27,10 @@ mod win_app;
 
 #[cfg(windows)]
 fn main() -> anyhow::Result<()> {
+    if std::env::args_os().any(|argument| argument == std::ffi::OsStr::new("--gamebar-noop")) {
+        return Ok(());
+    }
+
     let _guard = match single_instance::acquire()? {
         single_instance::AcquireOutcome::Acquired(guard) => guard,
         single_instance::AcquireOutcome::AlreadyRunning(existing_build) => {

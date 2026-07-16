@@ -271,7 +271,7 @@ impl X360ceApp {
             state.emulation_enabled,
             forwarding_active,
         );
-        let game_bar_result = game_bar::set_controller_button_enabled(false);
+        let game_bar_result = game_bar::install_hard_block();
         let mut status = if state.last_status.is_empty() {
             "Ready.".to_owned()
         } else {
@@ -1297,7 +1297,7 @@ impl X360ceApp {
 
             if changed {
                 self.sync_forwarding_mode();
-                if let Err(error) = game_bar::set_controller_button_enabled(false) {
+                if let Err(error) = game_bar::install_hard_block() {
                     self.status = format!("Xbox Game Bar shortcut update failed: {error}");
                 }
                 self.mark_activity();
