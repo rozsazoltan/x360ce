@@ -1174,12 +1174,10 @@ impl X360ceApp {
                             let mut clear_clicked = false;
                             let response = ui.horizontal(|ui| {
                                 let row_width = (ui.available_width() - 30.0).max(110.0);
-                                let response = ui.add_sized(
-                                    [row_width, 22.0],
-                                    egui::SelectableLabel::new(
-                                        self.selected_control == *item,
-                                        rich,
-                                    ),
+                                ui.set_min_width(row_width);
+                                let response = ui.selectable_label(
+                                    self.selected_control == *item,
+                                    rich,
                                 );
                                 clear_clicked = ui
                                     .add_enabled(mapped, egui::Button::new("×"))
