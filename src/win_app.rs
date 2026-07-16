@@ -1290,7 +1290,12 @@ fn draw_controller_body(ui: &egui::Ui, rect: egui::Rect) {
         84.0,
         shell,
     );
-    painter.circle_stroke(core, 84, Stroke::new(2.0, shell_light));
+    painter.rect_stroke(
+        core,
+        84,
+        Stroke::new(2.0, shell_light),
+        egui::StrokeKind::Middle,
+    );
 
     let highlight = egui::Rect::from_center_size(
         egui::pos2(core.center().x, core.top() + 38.0),
