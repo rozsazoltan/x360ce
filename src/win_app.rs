@@ -1009,14 +1009,14 @@ impl X360ceApp {
                 ui,
                 &profile,
                 true,
-                egui::pos2(rect.left() + rect.width() * 0.365, rect.top() + rect.height() * 0.67),
+                egui::pos2(rect.left() + rect.width() * 0.365, rect.top() + rect.height() * 0.56),
             );
             draw_stick_controls(
                 self,
                 ui,
                 &profile,
                 false,
-                egui::pos2(rect.left() + rect.width() * 0.635, rect.top() + rect.height() * 0.67),
+                egui::pos2(rect.left() + rect.width() * 0.635, rect.top() + rect.height() * 0.56),
             );
         });
     }
@@ -1476,21 +1476,21 @@ fn draw_controller_body(ui: &egui::Ui, rect: egui::Rect) {
 
 fn controller_points() -> [(OutputControl, f32, f32); 15] {
     [
-        (OutputControl::LeftTrigger, 0.19, 0.08),
-        (OutputControl::RightTrigger, 0.81, 0.08),
-        (OutputControl::LeftShoulder, 0.28, 0.17),
-        (OutputControl::RightShoulder, 0.72, 0.17),
-        (OutputControl::Guide, 0.50, 0.34),
-        (OutputControl::Back, 0.43, 0.40),
-        (OutputControl::Start, 0.57, 0.40),
-        (OutputControl::Y, 0.76, 0.28),
-        (OutputControl::B, 0.83, 0.40),
-        (OutputControl::A, 0.76, 0.52),
-        (OutputControl::X, 0.69, 0.40),
-        (OutputControl::DpadUp, 0.25, 0.38),
-        (OutputControl::DpadRight, 0.31, 0.49),
-        (OutputControl::DpadDown, 0.25, 0.60),
-        (OutputControl::DpadLeft, 0.19, 0.49),
+        (OutputControl::LeftTrigger, 0.26, 0.11),
+        (OutputControl::RightTrigger, 0.74, 0.11),
+        (OutputControl::LeftShoulder, 0.32, 0.14),
+        (OutputControl::RightShoulder, 0.68, 0.14),
+        (OutputControl::Guide, 0.50, 0.27),
+        (OutputControl::Back, 0.43, 0.32),
+        (OutputControl::Start, 0.57, 0.32),
+        (OutputControl::Y, 0.76, 0.20),
+        (OutputControl::B, 0.84, 0.31),
+        (OutputControl::A, 0.76, 0.42),
+        (OutputControl::X, 0.68, 0.31),
+        (OutputControl::DpadUp, 0.25, 0.24),
+        (OutputControl::DpadRight, 0.32, 0.32),
+        (OutputControl::DpadDown, 0.25, 0.40),
+        (OutputControl::DpadLeft, 0.18, 0.32),
     ]
 }
 
@@ -1507,10 +1507,10 @@ fn short_control_label(control: OutputControl) -> &'static str {
         OutputControl::Guide => "X",
         OutputControl::LeftThumb => "L3",
         OutputControl::RightThumb => "R3",
-        OutputControl::DpadUp => "↑",
-        OutputControl::DpadRight => "→",
-        OutputControl::DpadDown => "↓",
-        OutputControl::DpadLeft => "←",
+        OutputControl::DpadUp => "▲",
+        OutputControl::DpadRight => "▶",
+        OutputControl::DpadDown => "▼",
+        OutputControl::DpadLeft => "◀",
         OutputControl::LeftTrigger => "LT",
         OutputControl::RightTrigger => "RT",
         OutputControl::LeftStickX => "LX",
@@ -1617,39 +1617,42 @@ fn controller_control(
     let active = entry
         .map(|entry| control_preview_active(control, entry, &app.runtime.raw_state))
         .unwrap_or(false);
-    let selected = app.selected_control == control && app.selected_axis_negative.is_none();
+    let selected = app.learning_control == Some(control) && app.selected_axis_negative.is_none();
     let fill = if active {
-        Color32::from_rgba_unmultiplied(37, 145, 83, 220)
+        Color32::from_rgb(55, 184, 105)
     } else if selected {
-        Color32::from_rgba_unmultiplied(52, 111, 224, 210)
+        Color32::from_rgba_unmultiplied(52, 111, 224, 225)
     } else if mapped {
-        Color32::from_rgba_unmultiplied(255, 255, 255, 32)
+        Color32::from_rgba_unmultiplied(255, 255, 255, 245)
     } else {
-        Color32::from_rgba_unmultiplied(205, 125, 21, 28)
+        Color32::from_rgba_unmultiplied(255, 232, 187, 230)
     };
     let stroke = if active {
-        Stroke::new(2.0, Color32::from_rgb(207, 245, 222))
+        Stroke::new(1.8, Color32::from_rgb(29, 110, 61))
     } else if selected {
-        Stroke::new(2.5, Color32::WHITE)
+        Stroke::new(2.4, ACCENT)
     } else if mapped {
-        Stroke::new(1.2, Color32::from_rgba_unmultiplied(255, 255, 255, 170))
+        Stroke::new(1.0, Color32::from_rgba_unmultiplied(24, 29, 37, 92))
     } else {
         Stroke::new(1.2, Color32::from_rgba_unmultiplied(205, 125, 21, 180))
     };
     ui.painter().circle_filled(center, radius, fill);
     ui.painter().circle_stroke(center, radius, stroke);
+    let label_color = if active {
+        Color32::from_rgb(18, 24, 21)
+    } else if selected {
+        Color32::WHITE
+    } else if mapped || control == OutputControl::Y {
+        Color32::from_rgb(24, 29, 37)
+    } else {
+        Color32::from_rgb(143, 85, 14)
+    };
     ui.painter().text(
         center,
         Align2::CENTER_CENTER,
         label,
-        FontId::proportional(9.0),
-        if active || selected {
-            Color32::WHITE
-        } else if mapped {
-            Color32::from_rgba_unmultiplied(255, 255, 255, 215)
-        } else {
-            WARNING
-        },
+        FontId::proportional(if active { 10.0 } else { 9.0 }),
+        label_color,
     );
     if !mapped {
         ui.painter().text(
@@ -1736,16 +1739,16 @@ fn draw_stick_controls(
         let mapped = entry
             .map(|entry| entry.binding != InputBinding::None)
             .unwrap_or(false);
-        let selected = app.selected_control == control
+        let selected = app.learning_control == Some(control)
             && app.selected_axis_negative == Some(output_negative);
         let fill = if active {
-            Color32::from_rgba_unmultiplied(37, 145, 83, 225)
+            Color32::from_rgb(55, 184, 105)
         } else if selected {
-            Color32::from_rgba_unmultiplied(52, 111, 224, 220)
+            Color32::from_rgba_unmultiplied(52, 111, 224, 225)
         } else if mapped {
-            Color32::from_rgba_unmultiplied(255, 255, 255, 34)
+            Color32::from_rgba_unmultiplied(255, 255, 255, 245)
         } else {
-            Color32::from_rgba_unmultiplied(205, 125, 21, 24)
+            Color32::from_rgba_unmultiplied(255, 232, 187, 230)
         };
         ui.painter().circle_filled(marker_center, 8.5, fill);
         ui.painter().circle_stroke(
@@ -1753,10 +1756,12 @@ fn draw_stick_controls(
             8.5,
             Stroke::new(
                 if selected { 2.0 } else { 1.0 },
-                if selected || active {
-                    Color32::WHITE
+                if active {
+                    Color32::from_rgb(29, 110, 61)
+                } else if selected {
+                    ACCENT
                 } else if mapped {
-                    Color32::from_rgba_unmultiplied(255, 255, 255, 155)
+                    Color32::from_rgba_unmultiplied(24, 29, 37, 92)
                 } else {
                     Color32::from_rgba_unmultiplied(205, 125, 21, 175)
                 },
@@ -1766,13 +1771,15 @@ fn draw_stick_controls(
             marker_center,
             Align2::CENTER_CENTER,
             label,
-            FontId::proportional(10.0),
-            if active || selected {
+            FontId::proportional(if active { 11.0 } else { 10.0 }),
+            if active {
+                Color32::from_rgb(18, 24, 21)
+            } else if selected {
                 Color32::WHITE
             } else if mapped {
-                Color32::from_rgba_unmultiplied(255, 255, 255, 220)
+                Color32::from_rgb(24, 29, 37)
             } else {
-                WARNING
+                Color32::from_rgb(143, 85, 14)
             },
         );
         response.on_hover_text(format!(
