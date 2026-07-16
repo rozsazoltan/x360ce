@@ -1,2 +1,7 @@
 [alias]
 dev = ["run", "--manifest-path", "tools/x360ce-dev/Cargo.toml", "--"]
+
+[env]
+# SDL2 2.x still declares compatibility with pre-3.5 CMake policies.
+# CMake 4 removed that compatibility unless callers provide this floor.
+CMAKE_POLICY_VERSION_MINIMUM = "3.5"
