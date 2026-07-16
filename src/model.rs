@@ -66,12 +66,20 @@ pub struct RawState {
 pub enum InputBinding {
     #[default]
     None,
-    Button { index: u32 },
-    AxisPositive { index: u32 },
-    AxisNegative { index: u32 },
-    Hat { index: u32, direction: HatDirection },
+    Button {
+        index: u32,
+    },
+    AxisPositive {
+        index: u32,
+    },
+    AxisNegative {
+        index: u32,
+    },
+    Hat {
+        index: u32,
+        direction: HatDirection,
+    },
 }
-
 
 impl InputBinding {
     pub fn label(&self) -> String {
