@@ -71,6 +71,13 @@ pub fn map_report(profile: &ControllerProfile, raw: &RawState) -> X360Report {
     let mut report = X360Report::default();
 
     for control in OutputControl::BUTTONS {
+        // Never expose the virtual Guide/Nexus button to Windows. Windows can
+        // translate it into an ms-gamebar activation even when Game Bar is not
+        // installed, which produces a disruptive protocol-handler dialog.
+        if control == OutputControl::Guide {
+            continue;
+        }
+
         let Some(entry) = profile.entry(control) else {
             continue;
         };

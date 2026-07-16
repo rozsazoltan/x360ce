@@ -260,6 +260,10 @@ impl X360ceApp {
                     ControllerProfile::default_for(state.selected_device_guid.clone())
                 })
         };
+        // Guide output is intentionally always blocked. Keep persisted state
+        // aligned with actual behavior and Windows registry policy.
+        state.block_game_bar_controller_button = true;
+
         let forwarding_active = !window_visible || !state.forward_only_in_tray;
         let engine = ControllerEngine::start(
             state.selected_device_guid.clone(),
@@ -267,9 +271,7 @@ impl X360ceApp {
             state.emulation_enabled,
             forwarding_active,
         );
-        let game_bar_result = game_bar::set_controller_button_enabled(
-            !state.block_game_bar_controller_button,
-        );
+        let game_bar_result = game_bar::set_controller_button_enabled(false);
         let mut status = if state.last_status.is_empty() {
             "Ready.".to_owned()
         } else {
@@ -1280,12 +1282,14 @@ impl X360ceApp {
                 changed |= columns[0]
                     .checkbox(&mut self.state.forward_only_in_tray, "Forward only in tray")
                     .changed();
-                changed |= columns[1]
-                    .checkbox(
+                self.state.block_game_bar_controller_button = true;
+                columns[1].add_enabled(
+                    false,
+                    egui::Checkbox::new(
                         &mut self.state.block_game_bar_controller_button,
-                        "Block Game Bar button",
-                    )
-                    .changed();
+                        "Windows Game Bar blocked",
+                    ),
+                );
                 changed |= columns[1]
                     .checkbox(&mut self.state.include_prereleases, "Prereleases")
                     .changed();
@@ -1293,9 +1297,7 @@ impl X360ceApp {
 
             if changed {
                 self.sync_forwarding_mode();
-                if let Err(error) = game_bar::set_controller_button_enabled(
-                    !self.state.block_game_bar_controller_button,
-                ) {
+                if let Err(error) = game_bar::set_controller_button_enabled(false) {
                     self.status = format!("Xbox Game Bar shortcut update failed: {error}");
                 }
                 self.mark_activity();
