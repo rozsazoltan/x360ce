@@ -1,6 +1,9 @@
 use anyhow::{Context as _, Result};
 use crossbeam_channel::{unbounded, Receiver};
-use eframe::egui::{self, Align, Align2, Color32, FontId, Layout, RichText, Sense, Stroke};
+use eframe::egui::{
+    self, Align, Align2, Color32, FontId, Layout, RichText, Sense, Stroke, TextureHandle,
+    TextureOptions,
+};
 use std::{
     env, ptr, thread,
     time::{Duration, Instant},
@@ -20,6 +23,7 @@ use crate::{
     game_bar,
     mapper,
     model::{ControllerProfile, InputBinding, OutputControl, RawState, RuntimeSnapshot},
+    profile_io,
     single_instance::BuildKind,
     startup, updater,
     wide::str_wide_null,
@@ -218,8 +222,11 @@ struct X360ceApp {
     runtime: RuntimeSnapshot,
     tray: Option<TrayState>,
     status: String,
+    controller_texture: Option<TextureHandle>,
     selected_control: OutputControl,
+    selected_axis_negative: Option<bool>,
     learning_control: Option<OutputControl>,
+    learning_output_negative: bool,
     learn_baseline: RawState,
     window_visible: bool,
     quit_requested: bool,
@@ -272,6 +279,7 @@ impl X360ceApp {
             status = format!("Xbox Game Bar shortcut update failed: {error}");
         }
         let tray = TrayState::new(&state, false).ok();
+        let controller_texture = load_controller_texture(&creation_context.egui_ctx);
 
         Self {
             state,
@@ -279,8 +287,11 @@ impl X360ceApp {
             runtime: RuntimeSnapshot::default(),
             tray,
             status,
+            controller_texture,
             selected_control: OutputControl::A,
+            selected_axis_negative: None,
             learning_control: None,
+            learning_output_negative: false,
             learn_baseline: RawState::default(),
             window_visible,
             quit_requested: false,
@@ -434,53 +445,148 @@ impl X360ceApp {
         let Some(control) = self.learning_control else {
             return;
         };
-        if let Some(binding) = mapper::detect_binding(&self.learn_baseline, &self.runtime.raw_state) {
-            let binding = match binding {
-                InputBinding::AxisNegative { index } if control.is_axis() => {
-                    InputBinding::AxisPositive { index }
-                }
-                binding => binding,
-            };
-            let centered_axis = if control.is_trigger() {
-                match binding {
-                    InputBinding::AxisPositive { index } | InputBinding::AxisNegative { index } => {
-                        self.learn_baseline
-                            .axes
-                            .get(index as usize)
-                            .copied()
-                            .unwrap_or_default()
-                            .unsigned_abs()
-                            < 8_000
-                    }
-                    _ => false,
-                }
-            } else {
-                false
-            };
+        let Some(binding) = mapper::detect_binding(&self.learn_baseline, &self.runtime.raw_state)
+        else {
+            return;
+        };
+
+        let centered_axis = if control.is_trigger() {
+            match binding {
+                InputBinding::AxisPositive { index } | InputBinding::AxisNegative { index } => self
+                    .learn_baseline
+                    .axes
+                    .get(index as usize)
+                    .copied()
+                    .unwrap_or_default()
+                    .unsigned_abs()
+                    < 8_000,
+                _ => false,
+            }
+        } else {
+            false
+        };
+        let output_negative = self.learning_output_negative;
+        {
             let mapping = self.current_profile_mut().entry_mut(control);
             mapping.binding = binding;
             mapping.centered_axis = centered_axis;
-            self.learning_control = None;
-            self.status = format!("{} mapped to {}.", control.label(), binding.label());
-            self.push_profile();
-            self.save();
+            if control.is_axis() {
+                mapping.invert = output_negative;
+            } else if control.is_trigger() {
+                mapping.invert = false;
+            }
         }
+
+        self.learning_control = None;
+        self.learning_output_negative = false;
+        self.status = format!("{} mapped to {}.", control.label(), binding.label());
+        self.push_profile();
+        self.save();
     }
 
     fn begin_learning(&mut self, control: OutputControl) {
+        self.begin_learning_with_direction(control, false);
+    }
+
+    fn begin_learning_with_direction(&mut self, control: OutputControl, output_negative: bool) {
         self.selected_control = control;
+        self.selected_axis_negative = control.is_axis().then_some(output_negative);
         self.learning_control = Some(control);
+        self.learning_output_negative = output_negative;
         self.learn_baseline = self.runtime.raw_state.clone();
-        self.status = format!("Move axis or press input for {}.", control.label());
+        let direction = if control.is_axis() {
+            if output_negative {
+                "negative output"
+            } else {
+                "positive output"
+            }
+        } else {
+            "input"
+        };
+        self.status = format!("Move or press {direction} for {}.", control.label());
         self.mark_activity();
     }
 
     fn clear_mapping(&mut self, control: OutputControl) {
         self.current_profile_mut().entry_mut(control).binding = InputBinding::None;
         self.learning_control = None;
+        self.learning_output_negative = false;
+        self.selected_axis_negative = None;
         self.status = format!("{} mapping cleared.", control.label());
         self.push_profile();
         self.save();
+    }
+
+    fn set_axis_binding_direction(&mut self, control: OutputControl, positive: bool) {
+        let changed = {
+            let mapping = self.current_profile_mut().entry_mut(control);
+            let next = match mapping.binding {
+                InputBinding::AxisPositive { index } | InputBinding::AxisNegative { index } => {
+                    if positive {
+                        InputBinding::AxisPositive { index }
+                    } else {
+                        InputBinding::AxisNegative { index }
+                    }
+                }
+                _ => return,
+            };
+            if mapping.binding == next {
+                false
+            } else {
+                mapping.binding = next;
+                true
+            }
+        };
+        if changed {
+            self.status = format!(
+                "{} source direction set to {}.",
+                control.label(),
+                if positive { "+" } else { "-" }
+            );
+            self.push_profile();
+            self.save();
+            self.mark_activity();
+        }
+    }
+
+    fn export_current_mapping(&mut self) {
+        match profile_io::export_profile(&self.current_profile()) {
+            Ok(Some(path)) => {
+                self.status = format!("Mapping exported: {}", path.display());
+            }
+            Ok(None) => {
+                self.status = "Mapping export canceled.".to_owned();
+            }
+            Err(error) => {
+                self.status = format!("Mapping export failed: {error}");
+            }
+        }
+    }
+
+    fn import_mapping(&mut self) {
+        match profile_io::import_profile() {
+            Ok(Some((path, mut profile))) => {
+                let guid = self.state.selected_device_guid.clone();
+                profile.device_guid = guid.clone();
+                if profile.name.trim().is_empty() {
+                    profile.name = "Imported profile".to_owned();
+                }
+                self.state.profiles.insert(guid, profile.clone());
+                self.engine.send(EngineCommand::SetProfile(profile));
+                self.learning_control = None;
+                self.learning_output_negative = false;
+                self.selected_axis_negative = None;
+                self.status = format!("Mapping imported: {}", path.display());
+                self.save();
+                self.mark_activity();
+            }
+            Ok(None) => {
+                self.status = "Mapping import canceled.".to_owned();
+            }
+            Err(error) => {
+                self.status = format!("Mapping import failed: {error}");
+            }
+        }
     }
 
     fn poll_tray(&mut self, ctx: &egui::Context) {
@@ -647,6 +753,7 @@ impl eframe::App for X360ceApp {
             && ctx.input(|input| input.key_pressed(egui::Key::Escape))
         {
             self.learning_control = None;
+            self.learning_output_negative = false;
             self.status = "Mapping capture canceled.".to_owned();
             self.mark_activity();
         }
@@ -805,9 +912,9 @@ impl X360ceApp {
                 .devices
                 .iter()
                 .find(|device| device.guid == self.state.selected_device_guid)
-                .map(|device| device.name.clone())
+                .map(|device| ellipsize(&device.name, 34))
                 .unwrap_or_else(|| "No controller detected".to_owned());
-            let combo_width = (ui.available_width() - 76.0).clamp(180.0, 360.0);
+            let combo_width = (ui.available_width() - 76.0).clamp(160.0, 280.0);
             ui.horizontal(|ui| {
                 egui::ComboBox::from_id_salt("controller-selector")
                     .selected_text(selected_name)
@@ -863,10 +970,21 @@ impl X360ceApp {
                 }
             });
 
-            ui.add_space(6.0);
-            let desired = egui::vec2(ui.available_width(), 300.0);
-            let (rect, _) = ui.allocate_exact_size(desired, Sense::hover());
-            draw_controller_body(ui, rect);
+            ui.add_space(4.0);
+            let width = ui.available_width();
+            let height = (width * 0.62).clamp(240.0, 310.0);
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), Sense::hover());
+            let texture_id = self.controller_texture.as_ref().map(|texture| texture.id());
+            if let Some(texture_id) = texture_id {
+                ui.painter().image(
+                    texture_id,
+                    rect,
+                    egui::Rect::from_min_max(egui::pos2(0.0, 0.13), egui::pos2(1.0, 0.88)),
+                    Color32::WHITE,
+                );
+            } else {
+                draw_controller_body(ui, rect);
+            }
 
             let profile = self.current_profile();
             for (control, x, y) in controller_points() {
@@ -874,7 +992,7 @@ impl X360ceApp {
                     rect.left() + rect.width() * x,
                     rect.top() + rect.height() * y,
                 );
-                let radius = if control.is_trigger() { 17.0 } else { 15.0 };
+                let radius = if control.is_trigger() { 13.0 } else { 11.0 };
                 controller_control(
                     self,
                     ui,
@@ -890,26 +1008,28 @@ impl X360ceApp {
                 self,
                 ui,
                 &profile,
-                rect,
                 true,
-                egui::pos2(rect.left() + rect.width() * 0.34, rect.top() + rect.height() * 0.72),
+                egui::pos2(rect.left() + rect.width() * 0.365, rect.top() + rect.height() * 0.67),
             );
             draw_stick_controls(
                 self,
                 ui,
                 &profile,
-                rect,
                 false,
-                egui::pos2(rect.left() + rect.width() * 0.62, rect.top() + rect.height() * 0.72),
+                egui::pos2(rect.left() + rect.width() * 0.635, rect.top() + rect.height() * 0.67),
             );
         });
     }
-
 
     fn render_mapping_editor(&mut self, ui: &mut egui::Ui) {
         surface(ui, |ui| {
             let control = self.selected_control;
             let profile = self.current_profile();
+            let selected_entry = profile.entry(control).cloned();
+            let selected_mapped = selected_entry
+                .as_ref()
+                .map(|entry| entry.binding != InputBinding::None)
+                .unwrap_or(false);
 
             let title = ui.add(
                 egui::Label::new(RichText::new(control.label()).size(18.0).strong())
@@ -918,33 +1038,61 @@ impl X360ceApp {
             if title.double_clicked() {
                 self.begin_learning(control);
             }
-            ui.label(RichText::new(entry_label_for(&profile, control)).color(MUTED));
+            ui.label(
+                RichText::new(entry_label_for(&profile, control))
+                    .color(if selected_mapped { MUTED } else { WARNING }),
+            );
 
             ui.add_space(6.0);
             ui.horizontal_wrapped(|ui| {
                 if ui.button("Learn").clicked() {
                     self.begin_learning(control);
                 }
-                if ui.button("Clear").clicked() {
+                if ui
+                    .add_enabled(selected_mapped, egui::Button::new("Clear"))
+                    .clicked()
+                {
                     self.clear_mapping(control);
                 }
-                ui.label(
-                    RichText::new(format!(
-                        "Detected: {}",
-                        primary_live_input_label(&self.runtime.raw_state)
-                    ))
-                    .size(11.0)
-                    .color(MUTED),
-                );
+                if ui.button("Export").clicked() {
+                    self.export_current_mapping();
+                }
+                if ui.button("Import").clicked() {
+                    self.import_mapping();
+                }
             });
+            ui.label(
+                RichText::new(format!(
+                    "Detected: {}",
+                    primary_live_input_label(&self.runtime.raw_state)
+                ))
+                .size(11.0)
+                .color(MUTED),
+            );
 
             if control.is_axis() || control.is_trigger() {
                 ui.add_space(8.0);
+                if let Some(binding) = selected_entry.as_ref().map(|entry| entry.binding) {
+                    if let Some(positive) = axis_binding_positive(binding) {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new("Source direction").size(11.0).color(MUTED));
+                            if ui.selectable_label(positive, "+").clicked() {
+                                self.set_axis_binding_direction(control, true);
+                            }
+                            if ui.selectable_label(!positive, "−").clicked() {
+                                self.set_axis_binding_direction(control, false);
+                            }
+                        });
+                    }
+                }
+
                 let mut changed = false;
                 {
                     let mapping = self.current_profile_mut().entry_mut(control);
                     ui.horizontal_wrapped(|ui| {
-                        changed |= ui.checkbox(&mut mapping.invert, "Invert").changed();
+                        changed |= ui
+                            .checkbox(&mut mapping.invert, "Invert output")
+                            .changed();
                         if control.is_trigger() {
                             changed |= ui
                                 .checkbox(&mut mapping.centered_axis, "Split axis")
@@ -974,12 +1122,16 @@ impl X360ceApp {
             }
 
             ui.add_space(8.0);
-            ui.label(RichText::new("Mappings").strong());
-            ui.label(
-                RichText::new("Double-click any row to relearn it.")
-                    .size(10.0)
-                    .color(MUTED),
-            );
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Mappings").strong());
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.label(
+                        RichText::new("double-click to learn · × to clear")
+                            .size(10.0)
+                            .color(MUTED),
+                    );
+                });
+            });
             ui.add_space(4.0);
 
             let controls: Vec<OutputControl> = OutputControl::BUTTONS
@@ -991,27 +1143,58 @@ impl X360ceApp {
                 for (column_index, chunk) in controls.chunks(split).enumerate() {
                     columns[column_index].vertical(|ui| {
                         for item in chunk {
-                            let active = profile
-                                .entry(*item)
+                            let entry = profile.entry(*item);
+                            let mapped = entry
+                                .map(|entry| entry.binding != InputBinding::None)
+                                .unwrap_or(false);
+                            let active = entry
                                 .map(|entry| {
                                     control_preview_active(*item, entry, &self.runtime.raw_state)
                                 })
                                 .unwrap_or(false);
-                            let label = format!(
-                                "{} · {}",
-                                compact_control_label(*item),
-                                entry_label_for(&profile, *item)
-                            );
+                            let label = if mapped {
+                                format!(
+                                    "{} · {}",
+                                    compact_control_label(*item),
+                                    entry_label_for(&profile, *item)
+                                )
+                            } else {
+                                format!("! {} · Not mapped", compact_control_label(*item))
+                            };
                             let rich = if active {
                                 RichText::new(label).strong().color(SUCCESS)
-                            } else {
+                            } else if mapped {
                                 RichText::new(label).size(11.0).color(TEXT)
+                            } else {
+                                RichText::new(label)
+                                    .size(11.0)
+                                    .color(Color32::from_rgba_unmultiplied(154, 112, 45, 170))
                             };
-                            let response = ui.selectable_label(self.selected_control == *item, rich);
-                            if response.double_clicked() {
+
+                            let mut clear_clicked = false;
+                            let response = ui.horizontal(|ui| {
+                                let row_width = (ui.available_width() - 30.0).max(110.0);
+                                let response = ui.add_sized(
+                                    [row_width, 22.0],
+                                    egui::SelectableLabel::new(
+                                        self.selected_control == *item,
+                                        rich,
+                                    ),
+                                );
+                                clear_clicked = ui
+                                    .add_enabled(mapped, egui::Button::new("×"))
+                                    .on_hover_text("Clear mapping")
+                                    .clicked();
+                                response
+                            }).inner;
+
+                            if clear_clicked {
+                                self.clear_mapping(*item);
+                            } else if response.double_clicked() {
                                 self.begin_learning(*item);
                             } else if response.clicked() {
                                 self.selected_control = *item;
+                                self.selected_axis_negative = None;
                                 self.mark_activity();
                             }
                         }
@@ -1295,21 +1478,21 @@ fn draw_controller_body(ui: &egui::Ui, rect: egui::Rect) {
 
 fn controller_points() -> [(OutputControl, f32, f32); 15] {
     [
-        (OutputControl::LeftTrigger, 0.20, 0.13),
-        (OutputControl::RightTrigger, 0.80, 0.13),
-        (OutputControl::LeftShoulder, 0.29, 0.19),
-        (OutputControl::RightShoulder, 0.71, 0.19),
-        (OutputControl::Guide, 0.50, 0.40),
-        (OutputControl::Back, 0.43, 0.47),
-        (OutputControl::Start, 0.57, 0.47),
-        (OutputControl::Y, 0.75, 0.41),
-        (OutputControl::B, 0.82, 0.52),
-        (OutputControl::A, 0.75, 0.63),
-        (OutputControl::X, 0.68, 0.52),
-        (OutputControl::DpadUp, 0.24, 0.48),
-        (OutputControl::DpadRight, 0.29, 0.56),
-        (OutputControl::DpadDown, 0.24, 0.64),
-        (OutputControl::DpadLeft, 0.19, 0.56),
+        (OutputControl::LeftTrigger, 0.19, 0.08),
+        (OutputControl::RightTrigger, 0.81, 0.08),
+        (OutputControl::LeftShoulder, 0.28, 0.17),
+        (OutputControl::RightShoulder, 0.72, 0.17),
+        (OutputControl::Guide, 0.50, 0.34),
+        (OutputControl::Back, 0.43, 0.40),
+        (OutputControl::Start, 0.57, 0.40),
+        (OutputControl::Y, 0.76, 0.28),
+        (OutputControl::B, 0.83, 0.40),
+        (OutputControl::A, 0.76, 0.52),
+        (OutputControl::X, 0.69, 0.40),
+        (OutputControl::DpadUp, 0.25, 0.38),
+        (OutputControl::DpadRight, 0.31, 0.49),
+        (OutputControl::DpadDown, 0.25, 0.60),
+        (OutputControl::DpadLeft, 0.19, 0.49),
     ]
 }
 
@@ -1337,6 +1520,18 @@ fn short_control_label(control: OutputControl) -> &'static str {
         OutputControl::RightStickX => "RX",
         OutputControl::RightStickY => "RY",
     }
+}
+
+
+fn ellipsize(value: &str, max_chars: usize) -> String {
+    let count = value.chars().count();
+    if count <= max_chars {
+        return value.to_owned();
+    }
+    let keep = max_chars.saturating_sub(1);
+    let mut shortened = value.chars().take(keep).collect::<String>();
+    shortened.push('…');
+    shortened
 }
 
 fn normalize_axis(value: i16) -> f32 {
@@ -1403,7 +1598,7 @@ fn controller_control(
     radius: f32,
     label: &str,
 ) {
-    let hit = egui::Rect::from_center_size(center, egui::vec2(radius * 2.4, radius * 2.4));
+    let hit = egui::Rect::from_center_size(center, egui::vec2(radius * 2.8, radius * 2.8));
     let response = ui.interact(
         hit,
         ui.make_persistent_id(("controller-control", control)),
@@ -1413,39 +1608,64 @@ fn controller_control(
         app.begin_learning(control);
     } else if response.clicked() {
         app.selected_control = control;
+        app.selected_axis_negative = None;
         app.mark_activity();
     }
 
-    let active = profile
-        .entry(control)
+    let entry = profile.entry(control);
+    let mapped = entry
+        .map(|entry| entry.binding != InputBinding::None)
+        .unwrap_or(false);
+    let active = entry
         .map(|entry| control_preview_active(control, entry, &app.runtime.raw_state))
         .unwrap_or(false);
-    let selected = app.selected_control == control;
+    let selected = app.selected_control == control && app.selected_axis_negative.is_none();
     let fill = if active {
-        SUCCESS
+        Color32::from_rgba_unmultiplied(37, 145, 83, 220)
     } else if selected {
-        ACCENT
+        Color32::from_rgba_unmultiplied(52, 111, 224, 210)
+    } else if mapped {
+        Color32::from_rgba_unmultiplied(255, 255, 255, 32)
     } else {
-        Color32::from_rgba_unmultiplied(250, 251, 253, 238)
+        Color32::from_rgba_unmultiplied(205, 125, 21, 28)
+    };
+    let stroke = if active {
+        Stroke::new(2.0, Color32::from_rgb(207, 245, 222))
+    } else if selected {
+        Stroke::new(2.5, Color32::WHITE)
+    } else if mapped {
+        Stroke::new(1.2, Color32::from_rgba_unmultiplied(255, 255, 255, 170))
+    } else {
+        Stroke::new(1.2, Color32::from_rgba_unmultiplied(205, 125, 21, 180))
     };
     ui.painter().circle_filled(center, radius, fill);
-    ui.painter().circle_stroke(
-        center,
-        radius,
-        Stroke::new(
-            if selected { 2.5 } else { 1.0 },
-            if active || selected { Color32::WHITE } else { BORDER },
-        ),
-    );
+    ui.painter().circle_stroke(center, radius, stroke);
     ui.painter().text(
         center,
         Align2::CENTER_CENTER,
         label,
-        FontId::proportional(10.0),
-        if active || selected { Color32::WHITE } else { TEXT },
+        FontId::proportional(9.0),
+        if active || selected {
+            Color32::WHITE
+        } else if mapped {
+            Color32::from_rgba_unmultiplied(255, 255, 255, 215)
+        } else {
+            WARNING
+        },
     );
+    if !mapped {
+        ui.painter().text(
+            center + egui::vec2(radius * 0.8, -radius * 0.8),
+            Align2::CENTER_CENTER,
+            "!",
+            FontId::proportional(8.0),
+            WARNING,
+        );
+    }
     response.on_hover_text(format!(
-        "{}\n{}\nDouble-click to learn",
+        "{}
+{}
+Double-click to learn",
         control.label(),
         entry_label_for(profile, control)
     ));
@@ -1455,7 +1675,6 @@ fn draw_stick_controls(
     app: &mut X360ceApp,
     ui: &mut egui::Ui,
     profile: &ControllerProfile,
-    _rect: egui::Rect,
     left: bool,
     center: egui::Pos2,
 ) {
@@ -1484,51 +1703,86 @@ fn draw_stick_controls(
         .map(|entry| mapper::axis_preview(entry, &app.runtime.raw_state))
         .unwrap_or_default();
 
-    ui.painter().circle_filled(center, 28.0, Color32::from_rgb(224, 228, 233));
-    ui.painter().circle_filled(center, 17.0, Color32::from_rgb(184, 191, 201));
-    ui.painter().circle_stroke(center, 28.0, Stroke::new(1.5, Color32::WHITE));
+    controller_control(
+        app,
+        ui,
+        profile,
+        click_control,
+        center,
+        10.0,
+        &format!("{name}3"),
+    );
 
-    controller_control(app, ui, profile, click_control, center, 13.0, &format!("{name}3"));
-
-    for (control, offset, label, active) in [
-        (y_control, egui::vec2(0.0, -38.0), "↑", y_value < -0.15),
-        (x_control, egui::vec2(38.0, 0.0), "→", x_value > 0.15),
-        (y_control, egui::vec2(0.0, 38.0), "↓", y_value > 0.15),
-        (x_control, egui::vec2(-38.0, 0.0), "←", x_value < -0.15),
+    for (control, output_negative, offset, label, active) in [
+        (y_control, false, egui::vec2(0.0, -28.0), "↑", y_value > 0.15),
+        (x_control, false, egui::vec2(28.0, 0.0), "→", x_value > 0.15),
+        (y_control, true, egui::vec2(0.0, 28.0), "↓", y_value < -0.15),
+        (x_control, true, egui::vec2(-28.0, 0.0), "←", x_value < -0.15),
     ] {
         let marker_center = center + offset;
-        let hit = egui::Rect::from_center_size(marker_center, egui::vec2(24.0, 24.0));
+        let hit = egui::Rect::from_center_size(marker_center, egui::vec2(20.0, 20.0));
         let response = ui.interact(
             hit,
             ui.make_persistent_id(("stick-direction", left, label)),
             Sense::click(),
         );
         if response.double_clicked() {
-            app.begin_learning(control);
+            app.begin_learning_with_direction(control, output_negative);
         } else if response.clicked() {
             app.selected_control = control;
+            app.selected_axis_negative = Some(output_negative);
             app.mark_activity();
         }
-        let selected = app.selected_control == control;
-        ui.painter().circle_filled(
+
+        let entry = profile.entry(control);
+        let mapped = entry
+            .map(|entry| entry.binding != InputBinding::None)
+            .unwrap_or(false);
+        let selected = app.selected_control == control
+            && app.selected_axis_negative == Some(output_negative);
+        let fill = if active {
+            Color32::from_rgba_unmultiplied(37, 145, 83, 225)
+        } else if selected {
+            Color32::from_rgba_unmultiplied(52, 111, 224, 220)
+        } else if mapped {
+            Color32::from_rgba_unmultiplied(255, 255, 255, 34)
+        } else {
+            Color32::from_rgba_unmultiplied(205, 125, 21, 24)
+        };
+        ui.painter().circle_filled(marker_center, 8.5, fill);
+        ui.painter().circle_stroke(
             marker_center,
-            11.0,
-            if active {
-                SUCCESS
-            } else if selected {
-                ACCENT
-            } else {
-                Color32::from_rgba_unmultiplied(250, 251, 253, 232)
-            },
+            8.5,
+            Stroke::new(
+                if selected { 2.0 } else { 1.0 },
+                if selected || active {
+                    Color32::WHITE
+                } else if mapped {
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 155)
+                } else {
+                    Color32::from_rgba_unmultiplied(205, 125, 21, 175)
+                },
+            ),
         );
         ui.painter().text(
             marker_center,
             Align2::CENTER_CENTER,
             label,
-            FontId::proportional(11.0),
-            if active || selected { Color32::WHITE } else { TEXT },
+            FontId::proportional(10.0),
+            if active || selected {
+                Color32::WHITE
+            } else if mapped {
+                Color32::from_rgba_unmultiplied(255, 255, 255, 220)
+            } else {
+                WARNING
+            },
         );
-        response.on_hover_text(format!("{} · double-click to learn", control.label()));
+        response.on_hover_text(format!(
+            "{} {} output
+Double-click to learn",
+            control.label(),
+            if output_negative { "negative" } else { "positive" }
+        ));
     }
 }
 
@@ -1602,6 +1856,31 @@ fn primary_live_input_label(raw: &RawState) -> String {
 }
 
 
+
+
+fn axis_binding_positive(binding: InputBinding) -> Option<bool> {
+    match binding {
+        InputBinding::AxisPositive { .. } => Some(true),
+        InputBinding::AxisNegative { .. } => Some(false),
+        _ => None,
+    }
+}
+
+fn load_controller_texture(ctx: &egui::Context) -> Option<TextureHandle> {
+    let image = image::load_from_memory(include_bytes!("../assets/x360ce.png"))
+        .ok()?
+        .into_rgba8();
+    let (width, height) = image.dimensions();
+    let color_image = egui::ColorImage::from_rgba_unmultiplied(
+        [width as usize, height as usize],
+        image.as_raw(),
+    );
+    Some(ctx.load_texture(
+        "x360ce-controller-layout",
+        color_image,
+        TextureOptions::LINEAR,
+    ))
+}
 
 fn entry_label_for(profile: &ControllerProfile, control: OutputControl) -> String {
     profile

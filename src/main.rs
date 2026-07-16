@@ -13,6 +13,8 @@ mod game_bar;
 #[cfg(windows)]
 mod mapper;
 #[cfg(windows)]
+mod profile_io;
+#[cfg(windows)]
 mod single_instance;
 #[cfg(windows)]
 mod startup;

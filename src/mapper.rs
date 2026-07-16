@@ -306,6 +306,22 @@ mod tests {
     }
 
     #[test]
+    fn learns_negative_axis_direction() {
+        let previous = RawState {
+            axes: vec![0],
+            ..Default::default()
+        };
+        let current = RawState {
+            axes: vec![-20_000],
+            ..Default::default()
+        };
+        assert_eq!(
+            detect_binding(&previous, &current),
+            Some(InputBinding::AxisNegative { index: 0 })
+        );
+    }
+
+    #[test]
     fn deadzone_removes_center_noise() {
         assert_eq!(apply_deadzone(0.05, 0.12, 1.0), 0.0);
         assert!(apply_deadzone(0.75, 0.12, 1.0) > 0.6);

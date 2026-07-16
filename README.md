@@ -52,7 +52,7 @@ Known virtual Xbox output names are filtered from input discovery to avoid feedi
 
 ### Visual mapping
 
-Main view draws Xbox 360 control layout. Click output control, choose **Learn input**, then move physical axis, press button, or move hat switch.
+Main view uses the bundled `assets/x360ce.png` controller artwork. Click an output control to select it, or double-click the controller marker or mapping row to start learning. Press **Esc** to cancel learning.
 
 Supported output controls:
 
@@ -69,8 +69,8 @@ Right stick X / Y
 
 Each analog mapping stores:
 
-- source input
-- inversion
+- source input and detected `+` / `-` axis direction
+- output inversion
 - deadzone
 - saturation
 - centered/split-axis mode for shared trigger axes
@@ -205,12 +205,12 @@ Current selection is stored by device GUID. When controller reconnects, engine o
 
 ### Map controls
 
-1. Click output control in controller graphic or mapping list.
-2. Click **Learn input**.
-3. Press button, move axis beyond threshold, or move hat.
-4. Mapping is saved immediately.
+1. Click an output control in the controller graphic or mapping list.
+2. Click **Learn**, or double-click the controller marker or mapping row.
+3. Press a button, move an axis beyond threshold, or move a hat. Axis learning keeps the detected `+` or `-` source direction.
+4. Mapping is saved immediately. Press **Esc** to cancel.
 
-Use **Clear** to remove selected mapping.
+Use **Clear** or the row-level **×** button to remove a mapping. Unmapped controls stay available and appear dimmed with a non-blocking warning marker. **Export** and **Import** save or load the current controller profile as JSON.
 
 Default profile assumes common SDL order:
 
