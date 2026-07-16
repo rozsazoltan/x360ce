@@ -161,7 +161,11 @@ pub fn save_state(state: &SavedState) -> Result<()> {
 fn replace_config_file(temp: &Path, path: &Path, backup: &Path) -> Result<()> {
     if !path.exists() {
         return fs::rename(temp, path).with_context(|| {
-            format!("failed to move config file: {} -> {}", temp.display(), path.display())
+            format!(
+                "failed to move config file: {} -> {}",
+                temp.display(),
+                path.display()
+            )
         });
     }
 
@@ -169,7 +173,11 @@ fn replace_config_file(temp: &Path, path: &Path, backup: &Path) -> Result<()> {
         fs::remove_file(backup).ok();
     }
     fs::rename(path, backup).with_context(|| {
-        format!("failed to create config backup: {} -> {}", path.display(), backup.display())
+        format!(
+            "failed to create config backup: {} -> {}",
+            path.display(),
+            backup.display()
+        )
     })?;
 
     match fs::rename(temp, path) {
@@ -180,7 +188,11 @@ fn replace_config_file(temp: &Path, path: &Path, backup: &Path) -> Result<()> {
         Err(error) => {
             let _ = fs::rename(backup, path);
             Err(error).with_context(|| {
-                format!("failed to replace config file: {} -> {}", temp.display(), path.display())
+                format!(
+                    "failed to replace config file: {} -> {}",
+                    temp.display(),
+                    path.display()
+                )
             })
         }
     }

@@ -13,7 +13,10 @@ const POLL_INTERVAL: Duration = Duration::from_millis(450);
 fn main() {
     let root = project_root();
     if let Err(error) = env::set_current_dir(&root) {
-        eprintln!("failed to enter project directory {}: {error}", root.display());
+        eprintln!(
+            "failed to enter project directory {}: {error}",
+            root.display()
+        );
         std::process::exit(1);
     }
 
@@ -165,9 +168,11 @@ fn add_visual_studio_candidates(base: &Path, candidates: &mut Vec<PathBuf>) {
     };
 
     for edition in editions.flatten() {
-        candidates.push(edition.path().join(
-            "Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
-        ));
+        candidates.push(
+            edition
+                .path()
+                .join("Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe"),
+        );
     }
 }
 
@@ -181,8 +186,7 @@ fn is_working_cmake(candidate: &Path) -> bool {
     let Ok(output) = output else {
         return false;
     };
-    output.status.success()
-        && String::from_utf8_lossy(&output.stdout).contains("cmake version")
+    output.status.success() && String::from_utf8_lossy(&output.stdout).contains("cmake version")
 }
 
 #[cfg(windows)]

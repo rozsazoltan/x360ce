@@ -1,6 +1,5 @@
 use crate::{
-    driver,
-    mapper,
+    driver, mapper,
     model::{ControllerProfile, DeviceDescriptor, HatDirection, RawState, RuntimeSnapshot},
     virtual_gamepad::VirtualGamepad,
 };
@@ -105,9 +104,7 @@ fn run_worker(
     sdl2::hint::set("SDL_JOYSTICK_HIDAPI", "1");
 
     let sdl = sdl2::init().map_err(|error| anyhow::anyhow!(error))?;
-    let joystick_subsystem = sdl
-        .joystick()
-        .map_err(|error| anyhow::anyhow!(error))?;
+    let joystick_subsystem = sdl.joystick().map_err(|error| anyhow::anyhow!(error))?;
     joystick_subsystem.set_event_state(false);
 
     let mut devices = enumerate_devices(&joystick_subsystem);
@@ -201,11 +198,12 @@ fn run_worker(
             }
         } else {
             virtual_gamepad = None;
-            last_virtual_error = if enabled && forwarding_active && joystick.is_some() && !driver_installed {
-                Some("ViGEmBus driver is not installed.".to_owned())
-            } else {
-                None
-            };
+            last_virtual_error =
+                if enabled && forwarding_active && joystick.is_some() && !driver_installed {
+                    Some("ViGEmBus driver is not installed.".to_owned())
+                } else {
+                    None
+                };
         }
         let last_error = last_virtual_error.clone();
 

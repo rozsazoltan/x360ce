@@ -212,7 +212,10 @@ impl MappingEntry {
         Self {
             control,
             binding,
-            invert: matches!(control, OutputControl::LeftStickY | OutputControl::RightStickY),
+            invert: matches!(
+                control,
+                OutputControl::LeftStickY | OutputControl::RightStickY
+            ),
             centered_axis: false,
             deadzone: default_deadzone(),
             saturation: default_saturation(),
@@ -235,13 +238,22 @@ impl ControllerProfile {
             MappingEntry::new(OutputControl::B, InputBinding::Button { index: 1 }),
             MappingEntry::new(OutputControl::X, InputBinding::Button { index: 2 }),
             MappingEntry::new(OutputControl::Y, InputBinding::Button { index: 3 }),
-            MappingEntry::new(OutputControl::LeftShoulder, InputBinding::Button { index: 4 }),
-            MappingEntry::new(OutputControl::RightShoulder, InputBinding::Button { index: 5 }),
+            MappingEntry::new(
+                OutputControl::LeftShoulder,
+                InputBinding::Button { index: 4 },
+            ),
+            MappingEntry::new(
+                OutputControl::RightShoulder,
+                InputBinding::Button { index: 5 },
+            ),
             MappingEntry::new(OutputControl::Back, InputBinding::Button { index: 6 }),
             MappingEntry::new(OutputControl::Start, InputBinding::Button { index: 7 }),
             MappingEntry::new(OutputControl::Guide, InputBinding::Button { index: 8 }),
             MappingEntry::new(OutputControl::LeftThumb, InputBinding::Button { index: 9 }),
-            MappingEntry::new(OutputControl::RightThumb, InputBinding::Button { index: 10 }),
+            MappingEntry::new(
+                OutputControl::RightThumb,
+                InputBinding::Button { index: 10 },
+            ),
             MappingEntry::new(
                 OutputControl::DpadUp,
                 InputBinding::Hat {
@@ -270,12 +282,30 @@ impl ControllerProfile {
                     direction: HatDirection::Left,
                 },
             ),
-            MappingEntry::new(OutputControl::LeftTrigger, InputBinding::AxisPositive { index: 4 }),
-            MappingEntry::new(OutputControl::RightTrigger, InputBinding::AxisPositive { index: 5 }),
-            MappingEntry::new(OutputControl::LeftStickX, InputBinding::AxisPositive { index: 0 }),
-            MappingEntry::new(OutputControl::LeftStickY, InputBinding::AxisPositive { index: 1 }),
-            MappingEntry::new(OutputControl::RightStickX, InputBinding::AxisPositive { index: 2 }),
-            MappingEntry::new(OutputControl::RightStickY, InputBinding::AxisPositive { index: 3 }),
+            MappingEntry::new(
+                OutputControl::LeftTrigger,
+                InputBinding::AxisPositive { index: 4 },
+            ),
+            MappingEntry::new(
+                OutputControl::RightTrigger,
+                InputBinding::AxisPositive { index: 5 },
+            ),
+            MappingEntry::new(
+                OutputControl::LeftStickX,
+                InputBinding::AxisPositive { index: 0 },
+            ),
+            MappingEntry::new(
+                OutputControl::LeftStickY,
+                InputBinding::AxisPositive { index: 1 },
+            ),
+            MappingEntry::new(
+                OutputControl::RightStickX,
+                InputBinding::AxisPositive { index: 2 },
+            ),
+            MappingEntry::new(
+                OutputControl::RightStickY,
+                InputBinding::AxisPositive { index: 3 },
+            ),
         ];
 
         Self {
@@ -290,10 +320,15 @@ impl ControllerProfile {
     }
 
     pub fn entry_mut(&mut self, control: OutputControl) -> &mut MappingEntry {
-        if let Some(index) = self.entries.iter().position(|entry| entry.control == control) {
+        if let Some(index) = self
+            .entries
+            .iter()
+            .position(|entry| entry.control == control)
+        {
             return &mut self.entries[index];
         }
-        self.entries.push(MappingEntry::new(control, InputBinding::None));
+        self.entries
+            .push(MappingEntry::new(control, InputBinding::None));
         self.entries.last_mut().expect("mapping entry was inserted")
     }
 }

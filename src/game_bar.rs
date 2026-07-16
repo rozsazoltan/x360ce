@@ -21,11 +21,7 @@ pub fn install_hard_block() -> Result<()> {
         let root = format!(r"HKCU\Software\Classes\{protocol}");
         set_string(&root, None, "URL:x360ce Game Bar blocker")?;
         set_string(&root, Some("URL Protocol"), "")?;
-        set_string(
-            &format!(r"{root}\shell\open\command"),
-            None,
-            &command,
-        )?;
+        set_string(&format!(r"{root}\shell\open\command"), None, &command)?;
     }
 
     Ok(())

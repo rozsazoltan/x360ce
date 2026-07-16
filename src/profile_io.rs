@@ -1,13 +1,9 @@
 use crate::model::ControllerProfile;
 use anyhow::{Context, Result};
-use std::{
-    fs,
-    os::windows::process::CommandExt,
-    path::PathBuf,
-    process::Command,
-};
+use std::{fs, os::windows::process::CommandExt, path::PathBuf, process::Command};
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-const FILTER: &str = "x360ce mapping (*.json)|*.json|JSON files (*.json)|*.json|All files (*.*)|*.*";
+const FILTER: &str =
+    "x360ce mapping (*.json)|*.json|JSON files (*.json)|*.json|All files (*.*)|*.*";
 
 pub fn export_profile(profile: &ControllerProfile) -> Result<Option<PathBuf>> {
     let default_name = format!("{}.x360ce.json", sanitize_filename(&profile.name));
@@ -15,8 +11,8 @@ pub fn export_profile(profile: &ControllerProfile) -> Result<Option<PathBuf>> {
         return Ok(None);
     };
 
-    let mut serialized = serde_json::to_vec_pretty(profile)
-        .context("failed to serialize controller mapping")?;
+    let mut serialized =
+        serde_json::to_vec_pretty(profile).context("failed to serialize controller mapping")?;
     serialized.push(b'\n');
     fs::write(&path, serialized)
         .with_context(|| format!("failed to export mapping: {}", path.display()))?;
@@ -28,8 +24,8 @@ pub fn import_profile() -> Result<Option<(PathBuf, ControllerProfile)>> {
         return Ok(None);
     };
 
-    let bytes = fs::read(&path)
-        .with_context(|| format!("failed to read mapping: {}", path.display()))?;
+    let bytes =
+        fs::read(&path).with_context(|| format!("failed to read mapping: {}", path.display()))?;
     let profile: ControllerProfile = serde_json::from_slice(&bytes)
         .with_context(|| format!("invalid x360ce mapping: {}", path.display()))?;
     Ok(Some((path, profile)))

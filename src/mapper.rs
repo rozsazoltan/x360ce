@@ -119,7 +119,9 @@ pub fn binding_pressed(entry: &MappingEntry, raw: &RawState) -> bool {
         InputBinding::None => false,
         InputBinding::Button { index } => raw.buttons.get(index as usize).copied().unwrap_or(false),
         InputBinding::AxisPositive { index } => normalized_axis(raw, index) > BUTTON_AXIS_THRESHOLD,
-        InputBinding::AxisNegative { index } => normalized_axis(raw, index) < -BUTTON_AXIS_THRESHOLD,
+        InputBinding::AxisNegative { index } => {
+            normalized_axis(raw, index) < -BUTTON_AXIS_THRESHOLD
+        }
         InputBinding::Hat { index, direction } => raw
             .hats
             .get(index as usize)

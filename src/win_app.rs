@@ -20,8 +20,7 @@ use crate::{
     config::{self, SavedState},
     driver,
     engine::{ControllerEngine, EngineCommand},
-    game_bar,
-    mapper,
+    game_bar, mapper,
     model::{ControllerProfile, InputBinding, OutputControl, RawState, RuntimeSnapshot},
     profile_io,
     single_instance::BuildKind,
@@ -91,8 +90,7 @@ pub fn activate_existing_instance(existing_build: BuildKind) {
 pub fn run() -> Result<()> {
     let icon = load_window_icon(include_bytes!("../assets/x360ce.png"))?;
     let state = config::load_state();
-    let visible = config::is_dev_build()
-        || (!started_from_startup() && !state.start_in_tray);
+    let visible = config::is_dev_build() || (!started_from_startup() && !state.start_in_tray);
     let viewport = egui::ViewportBuilder::default()
         .with_title(config::window_title())
         .with_inner_size([DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT])
@@ -113,11 +111,7 @@ pub fn run() -> Result<()> {
         config::app_name(),
         options,
         Box::new(move |creation_context| {
-            Ok(Box::new(X360ceApp::new(
-                creation_context,
-                state,
-                visible,
-            )))
+            Ok(Box::new(X360ceApp::new(creation_context, state, visible)))
         }),
     )
     .map_err(|error| anyhow::anyhow!("failed to run x360ce UI: {error}"))
@@ -190,7 +184,9 @@ impl TrayState {
             .with_menu(Box::new(menu))
             .with_menu_on_left_click(false)
             .with_menu_on_right_click(true)
-            .with_icon(load_tray_image(include_bytes!("../assets/x360ce-tray.png"))?)
+            .with_icon(load_tray_image(include_bytes!(
+                "../assets/x360ce-tray.png"
+            ))?)
             .with_tooltip(tray_tooltip(state, false))
             .build()?;
 
@@ -454,14 +450,15 @@ impl X360ceApp {
 
         let centered_axis = if control.is_trigger() {
             match binding {
-                InputBinding::AxisPositive { index } | InputBinding::AxisNegative { index } => self
-                    .learn_baseline
-                    .axes
-                    .get(index as usize)
-                    .copied()
-                    .unwrap_or_default()
-                    .unsigned_abs()
-                    < 8_000,
+                InputBinding::AxisPositive { index } | InputBinding::AxisNegative { index } => {
+                    self.learn_baseline
+                        .axes
+                        .get(index as usize)
+                        .copied()
+                        .unwrap_or_default()
+                        .unsigned_abs()
+                        < 8_000
+                }
                 _ => false,
             }
         } else {
@@ -710,7 +707,11 @@ impl X360ceApp {
     fn poll_runtime(&mut self) {
         self.runtime = self.engine.snapshot();
         if self.state.selected_device_guid.is_empty() {
-            let first_guid = self.runtime.devices.first().map(|device| device.guid.clone());
+            let first_guid = self
+                .runtime
+                .devices
+                .first()
+                .map(|device| device.guid.clone());
             if let Some(guid) = first_guid {
                 self.select_device(guid);
             }
@@ -865,9 +866,7 @@ impl X360ceApp {
                                     "Driver installer opened. Restart x360ce after install."
                                         .to_owned()
                             }
-                            Err(error) => {
-                                self.status = format!("Driver installer failed: {error}")
-                            }
+                            Err(error) => self.status = format!("Driver installer failed: {error}"),
                         }
                     }
                     if ui.button("Refresh").clicked() {
@@ -948,7 +947,6 @@ impl X360ceApp {
         });
     }
 
-
     fn render_controller(&mut self, ui: &mut egui::Ui) {
         surface(ui, |ui| {
             ui.horizontal(|ui| {
@@ -962,12 +960,7 @@ impl X360ceApp {
                 });
                 if let Some(control) = self.learning_control {
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        status_chip(
-                            ui,
-                            &format!("learning {}", control.label()),
-                            ACCENT,
-                            true,
-                        );
+                        status_chip(ui, &format!("learning {}", control.label()), ACCENT, true);
                     });
                 }
             });
@@ -996,7 +989,10 @@ impl X360ceApp {
                 );
                 let radius = if control.is_trigger() {
                     13.0
-                } else if matches!(control, OutputControl::Start | OutputControl::Back | OutputControl::Guide) {
+                } else if matches!(
+                    control,
+                    OutputControl::Start | OutputControl::Back | OutputControl::Guide
+                ) {
                     17.0
                 } else {
                     11.0
@@ -1017,14 +1013,20 @@ impl X360ceApp {
                 ui,
                 &profile,
                 true,
-                egui::pos2(rect.left() + rect.width() * 0.365, rect.top() + rect.height() * 0.54),
+                egui::pos2(
+                    rect.left() + rect.width() * 0.365,
+                    rect.top() + rect.height() * 0.54,
+                ),
             );
             draw_stick_controls(
                 self,
                 ui,
                 &profile,
                 false,
-                egui::pos2(rect.left() + rect.width() * 0.635, rect.top() + rect.height() * 0.54),
+                egui::pos2(
+                    rect.left() + rect.width() * 0.635,
+                    rect.top() + rect.height() * 0.54,
+                ),
             );
         });
     }
@@ -1047,8 +1049,11 @@ impl X360ceApp {
                 self.begin_learning(control);
             }
             ui.label(
-                RichText::new(entry_label_for(&profile, control))
-                    .color(if selected_mapped { MUTED } else { WARNING }),
+                RichText::new(entry_label_for(&profile, control)).color(if selected_mapped {
+                    MUTED
+                } else {
+                    WARNING
+                }),
             );
 
             ui.add_space(6.0);
@@ -1098,9 +1103,7 @@ impl X360ceApp {
                 {
                     let mapping = self.current_profile_mut().entry_mut(control);
                     ui.horizontal_wrapped(|ui| {
-                        changed |= ui
-                            .checkbox(&mut mapping.invert, "Invert output")
-                            .changed();
+                        changed |= ui.checkbox(&mut mapping.invert, "Invert output").changed();
                         if control.is_trigger() {
                             changed |= ui
                                 .checkbox(&mut mapping.centered_axis, "Split axis")
@@ -1180,19 +1183,19 @@ impl X360ceApp {
                             };
 
                             let mut clear_clicked = false;
-                            let response = ui.horizontal(|ui| {
-                                let row_width = (ui.available_width() - 30.0).max(110.0);
-                                ui.set_min_width(row_width);
-                                let response = ui.selectable_label(
-                                    self.selected_control == *item,
-                                    rich,
-                                );
-                                clear_clicked = ui
-                                    .add_enabled(mapped, egui::Button::new("×"))
-                                    .on_hover_text("Clear mapping")
-                                    .clicked();
-                                response
-                            }).inner;
+                            let response = ui
+                                .horizontal(|ui| {
+                                    let row_width = (ui.available_width() - 30.0).max(110.0);
+                                    ui.set_min_width(row_width);
+                                    let response =
+                                        ui.selectable_label(self.selected_control == *item, rich);
+                                    clear_clicked = ui
+                                        .add_enabled(mapped, egui::Button::new("×"))
+                                        .on_hover_text("Clear mapping")
+                                        .clicked();
+                                    response
+                                })
+                                .inner;
 
                             if clear_clicked {
                                 self.clear_mapping(*item);
@@ -1361,7 +1364,11 @@ impl X360ceApp {
             } else if let Some(check) = &self.last_update_check {
                 ui.label(RichText::new(update_status(check)).size(11.0).color(MUTED));
             } else {
-                ui.label(RichText::new("No update check yet.").size(11.0).color(MUTED));
+                ui.label(
+                    RichText::new("No update check yet.")
+                        .size(11.0)
+                        .color(MUTED),
+                );
             }
         });
     }
@@ -1374,7 +1381,6 @@ fn surface(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
         .inner_margin(egui::Margin::same(14))
         .show(ui, add_contents);
 }
-
 
 fn draw_controller_body(ui: &egui::Ui, rect: egui::Rect) {
     let painter = ui.painter();
@@ -1528,7 +1534,6 @@ fn short_control_label(control: OutputControl) -> &'static str {
     }
 }
 
-
 fn ellipsize(value: &str, max_chars: usize) -> String {
     let count = value.chars().count();
     if count <= max_chars {
@@ -1584,7 +1589,6 @@ fn ui_root(app: &mut X360ceApp, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         });
     app.render_countdown(ui.ctx());
 }
-
 
 fn compact_surface(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
     egui::Frame::new()
@@ -1716,7 +1720,18 @@ fn controller_control(
             center,
             Align2::CENTER_CENTER,
             label,
-            FontId::proportional(if matches!(control, OutputControl::Start | OutputControl::Back | OutputControl::Guide) { 7.2 } else if active { 10.0 } else { 9.0 }),
+            FontId::proportional(
+                if matches!(
+                    control,
+                    OutputControl::Start | OutputControl::Back | OutputControl::Guide
+                ) {
+                    7.2
+                } else if active {
+                    10.0
+                } else {
+                    9.0
+                },
+            ),
             label_color,
         );
     }
@@ -1882,7 +1897,11 @@ fn draw_stick_controls(
             "{} {} output
 Double-click to learn",
             control.label(),
-            if output_negative { "negative" } else { "positive" }
+            if output_negative {
+                "negative"
+            } else {
+                "positive"
+            }
         ));
     }
 }
@@ -1923,7 +1942,11 @@ fn status_chip(ui: &mut egui::Ui, text: &str, fill: Color32, strong: bool) {
         });
 }
 
-fn control_preview_active(control: OutputControl, entry: &crate::model::MappingEntry, raw: &RawState) -> bool {
+fn control_preview_active(
+    control: OutputControl,
+    entry: &crate::model::MappingEntry,
+    raw: &RawState,
+) -> bool {
     if control.is_trigger() {
         mapper::trigger_preview(entry, raw) > 0.15
     } else if control.is_axis() {
@@ -1956,9 +1979,6 @@ fn primary_live_input_label(raw: &RawState) -> String {
     "none".to_owned()
 }
 
-
-
-
 fn axis_binding_positive(binding: InputBinding) -> Option<bool> {
     match binding {
         InputBinding::AxisPositive { .. } => Some(true),
@@ -1972,10 +1992,8 @@ fn load_controller_texture(ctx: &egui::Context) -> Option<TextureHandle> {
         .ok()?
         .into_rgba8();
     let (width, height) = image.dimensions();
-    let color_image = egui::ColorImage::from_rgba_unmultiplied(
-        [width as usize, height as usize],
-        image.as_raw(),
-    );
+    let color_image =
+        egui::ColorImage::from_rgba_unmultiplied([width as usize, height as usize], image.as_raw());
     Some(ctx.load_texture(
         "x360ce-controller-layout",
         color_image,
@@ -2006,10 +2024,7 @@ fn draw_embedded_logo(ui: &mut egui::Ui) {
             color_image,
             egui::TextureOptions::LINEAR,
         );
-        ui.add(
-            egui::widgets::Image::new(&texture)
-                .fit_to_exact_size(egui::vec2(56.0, 56.0)),
-        );
+        ui.add(egui::widgets::Image::new(&texture).fit_to_exact_size(egui::vec2(56.0, 56.0)));
     } else {
         draw_header_logo(ui);
     }
@@ -2035,11 +2050,17 @@ fn draw_header_logo(ui: &mut egui::Ui) {
     painter.rect_filled(rect, 12, CONTROLLER);
     let center = rect.center();
     painter.line_segment(
-        [egui::pos2(center.x - 13.0, center.y), egui::pos2(center.x - 3.0, center.y)],
+        [
+            egui::pos2(center.x - 13.0, center.y),
+            egui::pos2(center.x - 3.0, center.y),
+        ],
         Stroke::new(4.0, Color32::WHITE),
     );
     painter.line_segment(
-        [egui::pos2(center.x - 8.0, center.y - 5.0), egui::pos2(center.x - 8.0, center.y + 5.0)],
+        [
+            egui::pos2(center.x - 8.0, center.y - 5.0),
+            egui::pos2(center.x - 8.0, center.y + 5.0),
+        ],
         Stroke::new(4.0, Color32::WHITE),
     );
     painter.circle_filled(egui::pos2(center.x + 10.0, center.y - 5.0), 3.5, WARNING);

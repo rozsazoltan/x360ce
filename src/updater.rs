@@ -271,4 +271,3 @@ fn ensure_current_exe_can_be_replaced(current_exe: &Path) -> Result<()> {
     let _ = fs::remove_file(probe);
     Ok(())
 }
-
