@@ -44,7 +44,7 @@ pub fn open_releases_page() -> Result<()> {
             .args(["/C", "start", "", RELEASES_PAGE])
             .spawn()
             .context("failed to open GitHub releases page")?;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(windows))]

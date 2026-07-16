@@ -1149,7 +1149,7 @@ impl X360ceApp {
                 .into_iter()
                 .chain(OutputControl::ANALOGS)
                 .collect();
-            let split = (controls.len() + 1) / 2;
+            let split = controls.len().div_ceil(2);
             ui.columns(2, |columns| {
                 for (column_index, chunk) in controls.chunks(split).enumerate() {
                     columns[column_index].vertical(|ui| {

@@ -61,9 +61,10 @@ pub struct RawState {
     pub hats: Vec<HatDirection>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum InputBinding {
+    #[default]
     None,
     Button { index: u32 },
     AxisPositive { index: u32 },
@@ -71,11 +72,6 @@ pub enum InputBinding {
     Hat { index: u32, direction: HatDirection },
 }
 
-impl Default for InputBinding {
-    fn default() -> Self {
-        Self::None
-    }
-}
 
 impl InputBinding {
     pub fn label(&self) -> String {
