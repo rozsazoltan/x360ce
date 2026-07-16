@@ -10,6 +10,7 @@ use std::{
 
 const RELEASES_API: &str = "https://api.github.com/repos/rozsazoltan/x360ce/releases";
 const LATEST_RELEASE_API: &str = "https://api.github.com/repos/rozsazoltan/x360ce/releases/latest";
+const RELEASES_PAGE: &str = "https://github.com/rozsazoltan/x360ce/releases";
 const USER_AGENT: &str = "x360ce-Updater";
 
 #[derive(Clone, Debug)]
@@ -34,6 +35,26 @@ struct GitHubRelease {
 struct GitHubAsset {
     name: String,
     browser_download_url: String,
+}
+
+pub fn open_releases_page() -> Result<()> {
+    #[cfg(windows)]
+    {
+        Command::new("cmd.exe")
+            .args(["/C", "start", "", RELEASES_PAGE])
+            .spawn()
+            .context("failed to open GitHub releases page")?;
+        return Ok(());
+    }
+
+    #[cfg(not(windows))]
+    {
+        Command::new("xdg-open")
+            .arg(RELEASES_PAGE)
+            .spawn()
+            .context("failed to open GitHub releases page")?;
+        Ok(())
+    }
 }
 
 fn ensure_updates_enabled() -> Result<()> {
