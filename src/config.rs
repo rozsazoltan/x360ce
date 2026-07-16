@@ -34,6 +34,10 @@ pub struct SavedState {
     pub startup_enabled: bool,
     #[serde(default)]
     pub include_prereleases: bool,
+    #[serde(default = "default_true")]
+    pub forward_only_in_tray: bool,
+    #[serde(default = "default_true")]
+    pub block_game_bar_controller_button: bool,
     #[serde(default)]
     pub last_auto_update_check_unix_seconds: u64,
     #[serde(default)]
@@ -52,6 +56,8 @@ impl Default for SavedState {
             start_in_tray: false,
             startup_enabled: false,
             include_prereleases: false,
+            forward_only_in_tray: true,
+            block_game_bar_controller_button: true,
             last_auto_update_check_unix_seconds: 0,
             last_status: "Ready.".to_owned(),
         }

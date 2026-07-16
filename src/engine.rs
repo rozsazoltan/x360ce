@@ -20,6 +20,7 @@ pub enum EngineCommand {
     SelectDevice(String),
     SetProfile(ControllerProfile),
     SetEnabled(bool),
+    SetForwardingActive(bool),
     Refresh,
     Shutdown,
 }
@@ -35,6 +36,7 @@ impl ControllerEngine {
         selected_guid: String,
         profile: ControllerProfile,
         enabled: bool,
+        forwarding_active: bool,
     ) -> Self {
         let (commands, receiver) = unbounded();
         let snapshot = Arc::new(RwLock::new(RuntimeSnapshot {
@@ -51,6 +53,7 @@ impl ControllerEngine {
                     selected_guid,
                     profile,
                     enabled,
+                    forwarding_active,
                 ) {
                     update_snapshot(&worker_snapshot, |state| {
                         state.last_error = Some(format!("controller engine stopped: {error:#}"));
@@ -94,6 +97,7 @@ fn run_worker(
     mut selected_guid: String,
     mut profile: ControllerProfile,
     mut enabled: bool,
+    mut forwarding_active: bool,
 ) -> anyhow::Result<()> {
     sdl2::hint::set("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
     sdl2::hint::set("SDL_JOYSTICK_THREAD", "1");
@@ -135,6 +139,12 @@ fn run_worker(
                     next_virtual_connect_attempt = Instant::now();
                     last_virtual_error = None;
                 }
+                EngineCommand::SetForwardingActive(next_active) => {
+                    forwarding_active = next_active;
+                    virtual_gamepad = None;
+                    next_virtual_connect_attempt = Instant::now();
+                    last_virtual_error = None;
+                }
                 EngineCommand::Refresh => force_refresh = true,
                 EngineCommand::Shutdown => return Ok(()),
             }
@@ -168,7 +178,7 @@ fn run_worker(
         if active {
             sequence = sequence.wrapping_add(1);
         }
-        if enabled && joystick.is_some() && driver_installed {
+        if enabled && forwarding_active && joystick.is_some() && driver_installed {
             if virtual_gamepad.is_none() && Instant::now() >= next_virtual_connect_attempt {
                 match VirtualGamepad::connect() {
                     Ok(gamepad) => {
@@ -191,7 +201,7 @@ fn run_worker(
             }
         } else {
             virtual_gamepad = None;
-            last_virtual_error = if enabled && joystick.is_some() && !driver_installed {
+            last_virtual_error = if enabled && forwarding_active && joystick.is_some() && !driver_installed {
                 Some("ViGEmBus driver is not installed.".to_owned())
             } else {
                 None
@@ -205,6 +215,7 @@ fn run_worker(
             state.selected_instance_id = selected_instance_id;
             state.raw_state = raw.clone();
             state.virtual_connected = virtual_gamepad.is_some();
+            state.forwarding_active = forwarding_active;
             state.driver_installed = driver_installed;
             state.last_error = last_error;
             if active {

@@ -17,6 +17,7 @@ use crate::{
     config::{self, SavedState},
     driver,
     engine::{ControllerEngine, EngineCommand},
+    game_bar,
     mapper,
     model::{ControllerProfile, InputBinding, OutputControl, RawState, RuntimeSnapshot},
     single_instance::BuildKind,
@@ -252,16 +253,24 @@ impl X360ceApp {
                     ControllerProfile::default_for(state.selected_device_guid.clone())
                 })
         };
+        let forwarding_active = !window_visible || !state.forward_only_in_tray;
         let engine = ControllerEngine::start(
             state.selected_device_guid.clone(),
             initial_profile,
             state.emulation_enabled,
+            forwarding_active,
         );
-        let status = if state.last_status.is_empty() {
+        let game_bar_result = game_bar::set_controller_button_enabled(
+            !state.block_game_bar_controller_button,
+        );
+        let mut status = if state.last_status.is_empty() {
             "Ready.".to_owned()
         } else {
             state.last_status.clone()
         };
+        if let Err(error) = game_bar_result {
+            status = format!("Xbox Game Bar shortcut update failed: {error}");
+        }
         let tray = TrayState::new(&state, false).ok();
 
         Self {
@@ -351,10 +360,17 @@ impl X360ceApp {
         self.sync_tray();
     }
 
+    fn sync_forwarding_mode(&self) {
+        let forwarding_active = !self.window_visible || !self.state.forward_only_in_tray;
+        self.engine
+            .send(EngineCommand::SetForwardingActive(forwarding_active));
+    }
+
     fn show_window(&mut self, ctx: &egui::Context) {
         self.window_visible = true;
         self.countdown_started = None;
         self.last_activity = Instant::now();
+        self.sync_forwarding_mode();
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
     }
@@ -362,6 +378,7 @@ impl X360ceApp {
     fn hide_window(&mut self, ctx: &egui::Context) {
         self.window_visible = false;
         self.countdown_started = None;
+        self.sync_forwarding_mode();
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
     }
 
@@ -679,6 +696,8 @@ impl X360ceApp {
     fn render_status(&mut self, ui: &mut egui::Ui) {
         let (label, color) = if !self.runtime.driver_installed {
             ("driver missing", WARNING)
+        } else if self.window_visible && self.state.forward_only_in_tray {
+            ("configuring", ACCENT)
         } else if self.runtime.virtual_connected {
             ("forwarding", SUCCESS)
         } else if !self.state.emulation_enabled {
@@ -693,7 +712,9 @@ impl X360ceApp {
                 status_chip(ui, label, color, true);
                 status_chip(
                     ui,
-                    if self.state.emulation_enabled {
+                    if self.window_visible && self.state.forward_only_in_tray {
+                        "tray forwarding"
+                    } else if self.state.emulation_enabled {
                         "virtual on"
                     } else {
                         "virtual off"
@@ -1066,17 +1087,65 @@ Mapped from: {}",
         surface(ui, |ui| {
             ui.label(RichText::new("Settings and updates").strong());
 
-            let mut changed = false;
-            changed |= ui
+            let previous_forward_only_in_tray = self.state.forward_only_in_tray;
+            let mut settings_changed = false;
+            settings_changed |= ui
+                .checkbox(
+                    &mut self.state.forward_only_in_tray,
+                    "Forward controller only while app is in tray",
+                )
+                .on_hover_text(
+                    "Visible configuration window pauses virtual Xbox output. Tray mode reconnects it.",
+                )
+                .changed();
+            settings_changed |= ui
                 .checkbox(&mut self.state.auto_tray_enabled, "Auto tray after inactivity")
                 .changed();
-            changed |= ui
+            settings_changed |= ui
                 .checkbox(&mut self.state.start_in_tray, "Start in tray")
                 .changed();
-            changed |= ui
+            settings_changed |= ui
                 .checkbox(&mut self.state.include_prereleases, "Include prereleases")
                 .changed();
-            if changed {
+
+            let game_bar_changed = ui
+                .checkbox(
+                    &mut self.state.block_game_bar_controller_button,
+                    "Block controller button from opening Xbox Game Bar",
+                )
+                .on_hover_text(
+                    "Disables Windows Gaming > Game Bar > Allow your controller to open Game Bar.",
+                )
+                .changed();
+
+            if game_bar_changed {
+                match game_bar::set_controller_button_enabled(
+                    !self.state.block_game_bar_controller_button,
+                ) {
+                    Ok(()) => {
+                        self.status = if self.state.block_game_bar_controller_button {
+                            "Xbox Game Bar controller shortcut disabled.".to_owned()
+                        } else {
+                            "Xbox Game Bar controller shortcut enabled.".to_owned()
+                        };
+                    }
+                    Err(error) => {
+                        self.status = format!("Xbox Game Bar shortcut update failed: {error}");
+                    }
+                }
+                settings_changed = true;
+            }
+
+            if previous_forward_only_in_tray != self.state.forward_only_in_tray {
+                self.sync_forwarding_mode();
+                self.status = if self.state.forward_only_in_tray && self.window_visible {
+                    "Configuration isolation active. Virtual output resumes in tray.".to_owned()
+                } else {
+                    "Forwarding mode updated.".to_owned()
+                };
+            }
+
+            if settings_changed {
                 self.mark_activity();
                 self.save();
                 self.sync_tray();
@@ -1152,17 +1221,33 @@ Mapped from: {}",
 
             ui.add_space(6.0);
             if config::is_dev_build() {
-                ui.label(RichText::new("Automatic update checks are disabled in dev builds.").color(MUTED));
+                ui.label(
+                    RichText::new("Automatic update checks are disabled in dev builds.")
+                        .color(MUTED),
+                );
             } else if let Some(check) = &self.last_update_check {
                 ui.label(RichText::new(update_status(check)).color(MUTED));
             } else {
                 ui.label(RichText::new("No update check yet.").color(MUTED));
             }
 
+            ui.add_space(6.0);
+            ui.label(
+                RichText::new(
+                    "Complete hiding of original physical controller from every Windows app requires HidHide. x360ce now pauses its virtual output while configuration window is visible.",
+                )
+                .size(10.5)
+                .color(MUTED),
+            );
+
             ui.add_space(8.0);
             match config::state_path() {
                 Ok(path) => {
-                    ui.label(RichText::new(path.display().to_string()).size(10.0).color(MUTED));
+                    ui.label(
+                        RichText::new(path.display().to_string())
+                            .size(10.0)
+                            .color(MUTED),
+                    );
                 }
                 Err(error) => {
                     ui.label(RichText::new(error.to_string()).color(DANGER));

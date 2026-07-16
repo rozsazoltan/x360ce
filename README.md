@@ -85,10 +85,11 @@ Controller engine runs in dedicated polling thread. It:
 2. polls selected device every 8 ms
 3. applies active profile
 4. creates virtual Xbox 360 target through ViGEmBus
-5. submits updated XUSB report
-6. keeps forwarding while window is visible or hidden in tray
+5. submits updated XUSB report only when forwarding is active
+6. pauses virtual output while configuration window is visible by default
+7. reconnects virtual output when app moves to tray
 
-Virtual target is removed when emulation is disabled, selected controller disconnects, driver becomes unavailable, or app exits.
+Virtual target is removed when configuration isolation is active, emulation is disabled, selected controller disconnects, driver becomes unavailable, or app exits.
 
 ### Tray mode
 
@@ -101,7 +102,7 @@ Closing window hides it instead of stopping controller engine. Tray icon remains
 - check and install updates
 - quit app
 
-By default, visible window starts inactivity countdown after 60 seconds without UI or controller activity. Countdown shows `10…9…8…`; any activity cancels it. When countdown finishes, only UI hides. Controller polling and virtual forwarding continue.
+By default, visible window starts inactivity countdown after 60 seconds without UI or controller activity. Countdown shows `10…9…8…`; any activity cancels it. While window is visible, controller input remains available for live testing and mapping but virtual Xbox output is paused. When countdown finishes, UI hides and virtual forwarding resumes.
 
 ### Portable profiles
 
@@ -234,7 +235,7 @@ SDL commonly reports standalone triggers as `-32768` at rest and `32767` fully p
 
 Left click tray icon to open window. Right click for actions.
 
-Closing window or choosing **Hide to tray** keeps process running. Use **Quit x360ce** to remove virtual controller and stop process.
+Closing window or choosing **Hide to tray** keeps process running and enables virtual Xbox forwarding. Reopening configuration window pauses virtual output again. Use **Quit x360ce** to remove virtual controller and stop process.
 
 Automatic tray behavior defaults:
 
@@ -285,7 +286,7 @@ x360ce v0.1.0
 
 Only one instance can run. Starting another copy activates existing window when possible and shows native notice describing development/production conflict.
 
-Closing window hides app to tray. Controller engine is independent from window visibility.
+Closing window hides app to tray. Controller polling remains active at all times; virtual output follows configurable tray-only isolation mode.
 
 ## Architecture
 
@@ -484,7 +485,7 @@ Rumble output is not forwarded back to physical controller yet.
 
 Some games enumerate controllers only at startup. Restart game after enabling virtual controller.
 
-Physical controller remains visible to games. Games that read both physical and virtual devices can receive duplicate input. HidHide integration is not bundled.
+Physical controller remains visible to Windows and other applications. x360ce prevents its own virtual output while configuration window is visible and disables the Xbox Game Bar controller shortcut by default. Complete system-wide hiding of original device still requires HidHide.
 
 Self-update replaces executable in place. Executable folder must be writable by current user.
 

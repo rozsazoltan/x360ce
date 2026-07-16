@@ -9,6 +9,8 @@ mod driver;
 #[cfg(windows)]
 mod engine;
 #[cfg(windows)]
+mod game_bar;
+#[cfg(windows)]
 mod mapper;
 #[cfg(windows)]
 mod single_instance;

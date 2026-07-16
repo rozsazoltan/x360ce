@@ -304,6 +304,7 @@ pub struct RuntimeSnapshot {
     pub selected_instance_id: Option<u32>,
     pub raw_state: RawState,
     pub virtual_connected: bool,
+    pub forwarding_active: bool,
     pub driver_installed: bool,
     pub last_error: Option<String>,
     pub last_controller_activity_sequence: u64,
