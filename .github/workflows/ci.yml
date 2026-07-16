@@ -26,20 +26,43 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - name: Restore Cargo cache
-        id: cargo-cache
+      # Source archives and the crates.io index do not depend on compiler output.
+      # Restore them before resolving a missing lockfile so Cargo can reuse downloads.
+      - name: Restore Cargo registry cache
+        id: cargo-registry-cache
         uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
+            ~/.cargo/registry/src
             ~/.cargo/git/db
-            ${{ env.CARGO_TARGET_DIR }}
-          key: windows-quality-v3-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml', 'tools/x360ce-dev/Cargo.toml', '.cargo/config.toml') }}-${{ github.sha }}
+            ~/.cargo/git/checkouts
+          key: windows-quality-registry-v1-${{ runner.os }}-${{ hashFiles('Cargo.toml', 'tools/x360ce-dev/Cargo.toml', '.cargo/config.toml') }}
           restore-keys: |
-            windows-quality-v3-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml', 'tools/x360ce-dev/Cargo.toml', '.cargo/config.toml') }}-
-            windows-quality-v3-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            windows-quality-v3-${{ runner.os }}-
+            windows-quality-registry-v1-${{ runner.os }}-
+
+      - name: Ensure Cargo lockfile
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          if (-not (Test-Path "Cargo.lock")) {
+              Write-Host "Cargo.lock is not committed; generating it for this workflow run."
+              cargo generate-lockfile
+          }
+
+      # Compiler artifacts depend on the resolved dependency graph. The lockfile now
+      # always exists, including on the initial PR before Cargo.lock is committed.
+      - name: Restore Cargo target cache
+        id: cargo-target-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.CARGO_TARGET_DIR }}
+          key: windows-quality-target-v4-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml', 'tools/x360ce-dev/Cargo.toml', '.cargo/config.toml') }}-${{ github.sha }}
+          restore-keys: |
+            windows-quality-target-v4-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml', 'tools/x360ce-dev/Cargo.toml', '.cargo/config.toml') }}-
+            windows-quality-target-v4-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            windows-quality-target-v4-${{ runner.os }}-
 
       - name: Fetch dependencies
         run: cargo fetch --locked
@@ -47,23 +70,31 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-      # Clippy already performs Cargo's all-targets type checking. Running a separate
-      # cargo check here would compile the same graph again with no extra coverage.
+      # Clippy performs Cargo's all-targets type checking. A separate cargo check
+      # would compile the same graph again without adding coverage.
       - name: Check all targets with Clippy
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
       - name: Run tests
         run: cargo test --workspace --all-targets --all-features --locked --no-fail-fast
 
-      # A commit-specific save key lets later PR commits restore the newest target
-      # directory through restore-keys instead of being stuck on the first cache entry.
-      - name: Save Cargo cache
-        if: always() && steps.cargo-cache.outputs.cache-hit != 'true'
+      - name: Save Cargo registry cache
+        if: always() && steps.cargo-registry-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
+            ~/.cargo/registry/src
             ~/.cargo/git/db
-            ${{ env.CARGO_TARGET_DIR }}
-          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
+            ~/.cargo/git/checkouts
+          key: ${{ steps.cargo-registry-cache.outputs.cache-primary-key }}
+
+      # Commit-specific keys allow the next PR commit to restore the newest target
+      # directory through restore-keys instead of remaining on the first cache entry.
+      - name: Save Cargo target cache
+        if: always() && steps.cargo-target-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.CARGO_TARGET_DIR }}
+          key: ${{ steps.cargo-target-cache.outputs.cache-primary-key }}
