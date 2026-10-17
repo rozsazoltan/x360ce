@@ -30,7 +30,7 @@ Settings and profiles are saved beside the executable, so the application remain
 
 ## Mapping
 
-Choose a control on the virtual Xbox 360 layout or in the mapping list. Double-click it, then press a physical button or move an axis. Press `Esc` to cancel learning.
+Choose a control on the virtual Xbox 360 layout or in the mapping list. Double-click it, then press a controller button, keyboard key, or move an axis. Press `Esc` to cancel learning.
 
 | State | Meaning |
 |---|---|
@@ -39,7 +39,7 @@ Choose a control on the virtual Xbox 360 layout or in the mapping list. Double-c
 | Yellow with `!` | Not mapped |
 | Blue | Waiting for learned input |
 
-Buttons, triggers, D-pad directions, stick axes, and stick clicks can be mapped independently. A missing mapping is valid when the physical controller has fewer controls.
+Buttons, triggers, D-pad directions, stick axes, and stick clicks can be mapped independently. A missing mapping is valid when the physical controller has fewer controls. The profile can simulate a virtual controller, keyboard/mouse, or both at once. In keyboard/mouse mode, map either controller inputs or physical keyboard keys to a keyboard key, mouse button, or mouse X/Y movement. All outputs follow the same forwarding safety setting and held keys/buttons are released when forwarding stops. The virtual-controller option is enabled by default, preserving existing profiles.
 
 For axes, x360ce detects positive and negative movement separately. Use **Source direction** or **Invert output** when an axis moves the wrong way. Deadzone and saturation controls can refine stick behavior, while **Centered/split source axis** supports controllers that expose both triggers through one shared axis.
 

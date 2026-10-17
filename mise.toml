@@ -1,0 +1,3 @@
+[tools]
+cmake = "latest"
+rust = { version = "latest", components = ["rust-src", "clippy", "rustfmt"] }
