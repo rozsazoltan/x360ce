@@ -1,6 +1,10 @@
 use crate::{
-    driver, mapper,
-    model::{ControllerProfile, DeviceDescriptor, HatDirection, RawState, RuntimeSnapshot},
+    driver,
+    input_output::InputOutput,
+    mapper,
+    model::{
+        ControllerProfile, DeviceDescriptor, HatDirection, InputBinding, RawState, RuntimeSnapshot,
+    },
     virtual_gamepad::VirtualGamepad,
 };
 use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -10,6 +14,7 @@ use std::{
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(8);
 const ENUMERATION_INTERVAL: Duration = Duration::from_secs(2);
@@ -110,6 +115,7 @@ fn run_worker(
     let mut devices = enumerate_devices(&joystick_subsystem);
     let mut joystick = open_selected(&joystick_subsystem, &devices, &selected_guid);
     let mut virtual_gamepad: Option<VirtualGamepad> = None;
+    let mut input_output = InputOutput::default();
     let mut previous_raw = RawState::default();
     let mut sequence = 0_u64;
     let mut last_enumeration = Instant::now();
@@ -166,16 +172,34 @@ fn run_worker(
         }
 
         joystick_subsystem.update();
-        let raw = joystick
+        let mut raw = joystick
             .as_ref()
             .filter(|device| device.attached())
             .map(read_raw_state)
             .unwrap_or_default();
+        raw.keys = read_keyboard_state();
+        let has_keyboard_bindings = profile
+            .entries
+            .iter()
+            .any(|entry| matches!(entry.binding, InputBinding::Keyboard { .. }));
+        input_output.update(
+            &profile,
+            &raw,
+            enabled
+                && forwarding_active
+                && profile.simulate_keyboard_mouse
+                && (joystick.is_some() || has_keyboard_bindings),
+        );
         let active = has_activity(&previous_raw, &raw);
         if active {
             sequence = sequence.wrapping_add(1);
         }
-        if enabled && forwarding_active && joystick.is_some() && driver_installed {
+        if enabled
+            && forwarding_active
+            && driver_installed
+            && profile.simulate_controller
+            && (joystick.is_some() || has_keyboard_bindings)
+        {
             if virtual_gamepad.is_none() && Instant::now() >= next_virtual_connect_attempt {
                 match VirtualGamepad::connect() {
                     Ok(gamepad) => {
@@ -198,12 +222,16 @@ fn run_worker(
             }
         } else {
             virtual_gamepad = None;
-            last_virtual_error =
-                if enabled && forwarding_active && joystick.is_some() && !driver_installed {
-                    Some("ViGEmBus driver is not installed.".to_owned())
-                } else {
-                    None
-                };
+            last_virtual_error = if enabled
+                && forwarding_active
+                && !driver_installed
+                && profile.simulate_controller
+                && (joystick.is_some() || has_keyboard_bindings)
+            {
+                Some("ViGEmBus driver is not installed.".to_owned())
+            } else {
+                None
+            };
         }
         let last_error = last_virtual_error.clone();
 
@@ -295,7 +323,14 @@ fn read_raw_state(joystick: &sdl2::joystick::Joystick) -> RawState {
         axes,
         buttons,
         hats,
+        keys: Vec::new(),
     }
+}
+
+fn read_keyboard_state() -> Vec<u16> {
+    (0..=u8::MAX as u16)
+        .filter(|virtual_key| unsafe { GetAsyncKeyState(*virtual_key as i32) } < 0)
+        .collect()
 }
 
 fn convert_hat(value: HatState) -> HatDirection {
@@ -313,7 +348,10 @@ fn convert_hat(value: HatState) -> HatDirection {
 }
 
 fn has_activity(previous: &RawState, current: &RawState) -> bool {
-    if current.buttons != previous.buttons || current.hats != previous.hats {
+    if current.buttons != previous.buttons
+        || current.hats != previous.hats
+        || current.keys != previous.keys
+    {
         return true;
     }
     let max_axes = current.axes.len().max(previous.axes.len());

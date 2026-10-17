@@ -38,7 +38,7 @@ jobs:
             ~/.cargo/registry/src
             ~/.cargo/git/db
             ~/.cargo/git/checkouts
-          key: windows-quality-registry-v1-${{ runner.os }}-${{ hashFiles('Cargo.toml', 'tools/x360ce-dev/Cargo.toml', '.cargo/config.toml') }}
+          key: windows-quality-registry-v1-${{ runner.os }}-${{ hashFiles('Cargo.toml', '.cargo/config.toml') }}
           restore-keys: |
             windows-quality-registry-v1-${{ runner.os }}-
 
@@ -58,9 +58,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.CARGO_TARGET_DIR }}
-          key: windows-quality-target-v4-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml', 'tools/x360ce-dev/Cargo.toml', '.cargo/config.toml') }}-${{ github.sha }}
+          key: windows-quality-target-v4-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml', '.cargo/config.toml') }}-${{ github.sha }}
           restore-keys: |
-            windows-quality-target-v4-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml', 'tools/x360ce-dev/Cargo.toml', '.cargo/config.toml') }}-
+            windows-quality-target-v4-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml', '.cargo/config.toml') }}-
             windows-quality-target-v4-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
             windows-quality-target-v4-${{ runner.os }}-
 

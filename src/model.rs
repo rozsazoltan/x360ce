@@ -59,6 +59,8 @@ pub struct RawState {
     pub buttons: Vec<bool>,
     #[serde(default)]
     pub hats: Vec<HatDirection>,
+    #[serde(default)]
+    pub keys: Vec<u16>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -79,6 +81,9 @@ pub enum InputBinding {
         index: u32,
         direction: HatDirection,
     },
+    Keyboard {
+        virtual_key: u16,
+    },
 }
 
 impl InputBinding {
@@ -90,6 +95,23 @@ impl InputBinding {
             Self::AxisNegative { index } => format!("Axis {} -", index + 1),
             Self::Hat { index, direction } => {
                 format!("Hat {} {}", index + 1, direction.label())
+            }
+            Self::Keyboard { virtual_key } => {
+                let label = match virtual_key {
+                    0x20 => "Space".to_owned(),
+                    0x0D => "Enter".to_owned(),
+                    0x1B => "Escape".to_owned(),
+                    0x09 => "Tab".to_owned(),
+                    0x25 => "Left arrow".to_owned(),
+                    0x26 => "Up arrow".to_owned(),
+                    0x27 => "Right arrow".to_owned(),
+                    0x28 => "Down arrow".to_owned(),
+                    0x41..=0x5A | 0x30..=0x39 => char::from_u32(*virtual_key as u32)
+                        .unwrap_or('?')
+                        .to_string(),
+                    _ => format!("0x{virtual_key:02X}"),
+                };
+                format!("Keyboard: {label}")
             }
         }
     }
@@ -201,6 +223,32 @@ pub struct MappingEntry {
     pub deadzone: f32,
     #[serde(default = "default_saturation")]
     pub saturation: f32,
+    #[serde(default)]
+    pub output: OutputAction,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum OutputAction {
+    #[default]
+    None,
+    Key {
+        virtual_key: u16,
+    },
+    MouseX,
+    MouseY,
+    MouseButton {
+        button: MouseButton,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MouseButton {
+    #[default]
+    Left,
+    Right,
+    Middle,
 }
 
 fn default_deadzone() -> f32 {
@@ -209,6 +257,10 @@ fn default_deadzone() -> f32 {
 
 fn default_saturation() -> f32 {
     1.0
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl MappingEntry {
@@ -223,6 +275,7 @@ impl MappingEntry {
             centered_axis: false,
             deadzone: default_deadzone(),
             saturation: default_saturation(),
+            output: OutputAction::None,
         }
     }
 }
@@ -231,6 +284,10 @@ impl MappingEntry {
 pub struct ControllerProfile {
     pub name: String,
     pub device_guid: String,
+    #[serde(default = "default_true")]
+    pub simulate_controller: bool,
+    #[serde(default)]
+    pub simulate_keyboard_mouse: bool,
     #[serde(default)]
     pub entries: Vec<MappingEntry>,
 }
@@ -315,6 +372,8 @@ impl ControllerProfile {
         Self {
             name: "Default profile".to_owned(),
             device_guid,
+            simulate_controller: true,
+            simulate_keyboard_mouse: false,
             entries,
         }
     }

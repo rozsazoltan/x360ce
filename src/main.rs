@@ -11,6 +11,8 @@ mod engine;
 #[cfg(windows)]
 mod game_bar;
 #[cfg(windows)]
+mod input_output;
+#[cfg(windows)]
 mod mapper;
 #[cfg(windows)]
 mod profile_io;

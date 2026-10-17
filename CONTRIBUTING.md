@@ -17,123 +17,43 @@ User-facing installation and usage documentation belongs in [README.md](README.m
 ## Development requirements
 
 - Windows 10 or Windows 11, 64-bit
-- Rust 1.92 or newer
-- `x86_64-pc-windows-msvc` target
-- Visual Studio 2022 Build Tools
-- Desktop development with C++
-- C++ CMake tools for Windows, or another working `cmake.exe`
-- ViGEmBus for virtual-controller runtime testing
+- [mise](https://mise.jdx.dev/) to install the tools declared in `mise.toml`
+- Visual Studio 2022 Build Tools with the **Desktop development with C++** workload and a Windows SDK
+- ViGEmBus, installed separately, for virtual-controller runtime testing; mise does not install this external driver
 - A physical controller for end-to-end mapping testing
-- PowerShell 7 recommended for release scripts
-
-Install the Rust target:
-
-```powershell
-rustup target add x86_64-pc-windows-msvc
-```
 
 ## Build
 
-Development build:
+Install the configured tools, then run the application:
 
 ```powershell
-cargo build --bin x360ce
+mise install
+cargo run
 ```
 
-Release build:
+Activate mise in your shell or enable its shims on `PATH` before running Cargo. On a fresh checkout, run `mise trust` if mise requests approval for the project configuration.
+
+`cargo run` builds and starts the app; it does not watch files or restart automatically. Debug builds open the main window, disable startup registry writes and update checks, and use portable data unless `X360CE_APP_DATA_DIR` is set.
+
+Build an optimized release executable:
 
 ```powershell
-cargo build --release --target x86_64-pc-windows-msvc --bin x360ce
+cargo build --release
 ```
 
 Generated release executable:
 
 ```text
-target\x86_64-pc-windows-msvc\release\x360ce.exe
+target\release\x360ce.exe
 ```
 
-SDL2 uses bundled static linking. The ViGEm client is implemented through `vigem-rust`. ViGEmBus itself remains an external Windows kernel driver.
+The project uses the default Windows MSVC target. SDL2 uses bundled static linking. The ViGEm client is implemented through `vigem-rust`; ViGEmBus itself remains an external Windows kernel driver.
 
 After dependency changes, regenerate and commit the lockfile:
 
 ```powershell
 cargo generate-lockfile
 ```
-
-## Development runner
-
-Run the project-local watcher:
-
-```powershell
-scripts\dev.ps1
-```
-
-Command Prompt wrapper:
-
-```cmd
-scripts\dev.cmd
-```
-
-Unix-like shell wrapper:
-
-```sh
-scripts/dev.sh
-```
-
-Cargo alias:
-
-```powershell
-cargo dev
-```
-
-The development runner:
-
-- resolves a working CMake executable
-- builds the application
-- starts the Windows executable
-- watches source and asset changes
-- terminates the previous child process
-- restarts after successful rebuilds
-
-No external `cargo-watch` installation is required.
-
-Development builds:
-
-- open the main window automatically
-- use a `-dev` title suffix
-- disable startup registry writes
-- disable GitHub update checks and executable replacement
-- use the normal portable data model unless `X360CE_APP_DATA_DIR` is set
-
-## WSL source with Windows runtime
-
-Source can remain in WSL while compilation and runtime testing happen on Windows.
-
-Create the Mutagen sync session from Windows PowerShell through the WSL UNC checkout:
-
-```powershell
-scripts\setup-mutagen-wsl-dev.ps1
-```
-
-Then run the Windows-side watcher:
-
-```powershell
-scripts\dev-win.ps1
-```
-
-The setup script expects `mutagen.exe` on the Windows `PATH`. It does not download or install Mutagen.
-
-## CMake resolution
-
-The bundled SDL2 build requires a working CMake executable. Development and release scripts inspect detected `cmake.exe` candidates, reject broken shims, then prefer a standalone CMake installation or Visual Studio CMake.
-
-One installation option:
-
-```powershell
-mise use -g cmake@latest
-```
-
-Alternative: install **C++ CMake tools for Windows** through Visual Studio Installer.
 
 ## Repository layout
 
@@ -144,26 +64,19 @@ x360ce/
 ├─ .github/workflows/
 │  ├─ ci.yml
 │  └─ release.yml
+├─ mise.toml
 ├─ assets/
 │  ├─ third-party/
 │  │  └─ ViGEmBus_1.22.0_x64_x86_arm64.bin
 │  ├─ x360ce.png
 │  ├─ x360ce-tray.png
 │  └─ x360ce.ico
-├─ scripts/
-│  ├─ dev.cmd
-│  ├─ dev.ps1
-│  ├─ dev.sh
-│  ├─ dev-win.ps1
-│  ├─ release.ps1
-│  ├─ resolve-cmake.ps1
-│  ├─ setup-mutagen-wsl-dev.cmd
-│  └─ setup-mutagen-wsl-dev.ps1
 ├─ src/
 │  ├─ config.rs
 │  ├─ driver.rs
 │  ├─ engine.rs
 │  ├─ game_bar.rs
+│  ├─ input_output.rs
 │  ├─ main.rs
 │  ├─ mapper.rs
 │  ├─ model.rs
@@ -175,9 +88,6 @@ x360ce/
 │  ├─ wide.rs
 │  ├─ win_app.rs
 │  └─ x360ce.exe.manifest
-├─ tools/x360ce-dev/
-│  ├─ Cargo.toml
-│  └─ src/main.rs
 ├─ build.rs
 ├─ Cargo.toml
 ├─ CONTRIBUTING.md
@@ -335,23 +245,7 @@ Code signing is recommended for public releases but is not configured by default
 
 ## Release process
 
-Validate and build the current version locally:
-
-```powershell
-scripts\release.ps1 -Version 0.1.0
-```
-
-Dispatch a stable release workflow:
-
-```powershell
-scripts\release.ps1 -Version 0.2.0 -Publish
-```
-
-Dispatch a prerelease workflow:
-
-```powershell
-scripts\release.ps1 -Version 0.2.0-beta.1 -Prerelease -Publish
-```
+Dispatch the **Release** workflow from GitHub Actions with the requested semantic version and prerelease setting. The workflow handles version metadata, lockfile generation, build, tag, and GitHub release publication.
 
 Release workflow responsibilities:
 

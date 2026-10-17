@@ -31,6 +31,12 @@ pub fn detect_binding(previous: &RawState, current: &RawState) -> Option<InputBi
         }
     }
 
+    for virtual_key in current.keys.iter().copied() {
+        if !previous.keys.contains(&virtual_key) {
+            return Some(InputBinding::Keyboard { virtual_key });
+        }
+    }
+
     let mut best_axis: Option<(i32, InputBinding)> = None;
     for (index, value) in current.axes.iter().copied().enumerate() {
         let previous_value = previous.axes.get(index).copied().unwrap_or_default() as i32;
@@ -128,6 +134,7 @@ pub fn binding_pressed(entry: &MappingEntry, raw: &RawState) -> bool {
             .copied()
             .unwrap_or(HatDirection::Centered)
             .contains(direction),
+        InputBinding::Keyboard { virtual_key } => raw.keys.contains(&virtual_key),
     }
 }
 
@@ -151,6 +158,13 @@ pub fn axis_preview(entry: &MappingEntry, raw: &RawState) -> f32 {
                 .unwrap_or(HatDirection::Centered)
                 .contains(direction)
             {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        InputBinding::Keyboard { virtual_key } => {
+            if raw.keys.contains(&virtual_key) {
                 1.0
             } else {
                 0.0
@@ -208,6 +222,13 @@ pub fn trigger_preview(entry: &MappingEntry, raw: &RawState) -> f32 {
                 .unwrap_or(HatDirection::Centered)
                 .contains(direction)
             {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        InputBinding::Keyboard { virtual_key } => {
+            if raw.keys.contains(&virtual_key) {
                 1.0
             } else {
                 0.0

@@ -21,7 +21,10 @@ use crate::{
     driver,
     engine::{ControllerEngine, EngineCommand},
     game_bar, mapper,
-    model::{ControllerProfile, InputBinding, OutputControl, RawState, RuntimeSnapshot},
+    model::{
+        ControllerProfile, InputBinding, MouseButton as OutputMouseButton, OutputAction,
+        OutputControl, RawState, RuntimeSnapshot,
+    },
     profile_io,
     single_instance::BuildKind,
     startup, updater,
@@ -548,6 +551,164 @@ impl X360ceApp {
         }
     }
 
+    fn render_output_action(&mut self, ui: &mut egui::Ui, control: OutputControl) {
+        const KEYS: &[(u16, &str)] = &[
+            (0x41, "A"),
+            (0x42, "B"),
+            (0x43, "C"),
+            (0x44, "D"),
+            (0x45, "E"),
+            (0x46, "F"),
+            (0x47, "G"),
+            (0x48, "H"),
+            (0x49, "I"),
+            (0x4A, "J"),
+            (0x4B, "K"),
+            (0x4C, "L"),
+            (0x4D, "M"),
+            (0x4E, "N"),
+            (0x4F, "O"),
+            (0x50, "P"),
+            (0x51, "Q"),
+            (0x52, "R"),
+            (0x53, "S"),
+            (0x54, "T"),
+            (0x55, "U"),
+            (0x56, "V"),
+            (0x57, "W"),
+            (0x58, "X"),
+            (0x59, "Y"),
+            (0x5A, "Z"),
+            (0x20, "Space"),
+            (0x0D, "Enter"),
+            (0x1B, "Escape"),
+            (0x09, "Tab"),
+            (0x08, "Backspace"),
+            (0x25, "Left arrow"),
+            (0x26, "Up arrow"),
+            (0x27, "Right arrow"),
+            (0x28, "Down arrow"),
+            (0x10, "Shift"),
+            (0x11, "Ctrl"),
+            (0x12, "Alt"),
+            (0x30, "0"),
+            (0x31, "1"),
+            (0x32, "2"),
+            (0x33, "3"),
+            (0x34, "4"),
+            (0x35, "5"),
+            (0x36, "6"),
+            (0x37, "7"),
+            (0x38, "8"),
+            (0x39, "9"),
+        ];
+
+        let current = self
+            .current_profile()
+            .entry(control)
+            .map(|entry| entry.output)
+            .unwrap_or_default();
+        let current_label = match current {
+            OutputAction::None => "None".to_owned(),
+            OutputAction::Key { virtual_key } => KEYS
+                .iter()
+                .find(|(key, _)| *key == virtual_key)
+                .map(|(_, label)| format!("Key: {label}"))
+                .unwrap_or_else(|| format!("Key: 0x{virtual_key:02X}")),
+            OutputAction::MouseX => "Mouse X axis".to_owned(),
+            OutputAction::MouseY => "Mouse Y axis".to_owned(),
+            OutputAction::MouseButton { button } => format!("Mouse {button:?} button"),
+        };
+
+        let mut next = current;
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new("Additional output").size(11.0).color(MUTED));
+            egui::ComboBox::from_id_salt(("output-action", control))
+                .selected_text(current_label)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut next, OutputAction::None, "None");
+                    ui.selectable_value(
+                        &mut next,
+                        OutputAction::Key { virtual_key: 0x57 },
+                        "Keyboard key",
+                    );
+                    if control.is_axis() || control.is_trigger() {
+                        ui.selectable_value(&mut next, OutputAction::MouseX, "Mouse X axis");
+                        ui.selectable_value(&mut next, OutputAction::MouseY, "Mouse Y axis");
+                    }
+                    ui.selectable_value(
+                        &mut next,
+                        OutputAction::MouseButton {
+                            button: OutputMouseButton::Left,
+                        },
+                        "Left mouse button",
+                    );
+                    ui.selectable_value(
+                        &mut next,
+                        OutputAction::MouseButton {
+                            button: OutputMouseButton::Right,
+                        },
+                        "Right mouse button",
+                    );
+                    ui.selectable_value(
+                        &mut next,
+                        OutputAction::MouseButton {
+                            button: OutputMouseButton::Middle,
+                        },
+                        "Middle mouse button",
+                    );
+                });
+
+            if let OutputAction::Key { virtual_key } = next {
+                let mut selected_key = virtual_key;
+                egui::ComboBox::from_id_salt(("output-key", control))
+                    .selected_text(
+                        KEYS.iter()
+                            .find(|(key, _)| *key == selected_key)
+                            .map(|(_, label)| *label)
+                            .unwrap_or("Other key"),
+                    )
+                    .show_ui(ui, |ui| {
+                        for (key, label) in KEYS {
+                            ui.selectable_value(&mut selected_key, *key, *label);
+                        }
+                    });
+                next = OutputAction::Key {
+                    virtual_key: selected_key,
+                };
+            }
+        });
+
+        if next != current {
+            self.current_profile_mut().entry_mut(control).output = next;
+            self.push_profile();
+            self.save();
+            self.mark_activity();
+        }
+    }
+
+    fn render_output_targets(&mut self, ui: &mut egui::Ui) {
+        let changed = {
+            let profile = self.current_profile_mut();
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Simulate").strong());
+                let mut changed = ui
+                    .checkbox(&mut profile.simulate_controller, "Virtual controller")
+                    .changed();
+                changed |= ui
+                    .checkbox(&mut profile.simulate_keyboard_mouse, "Keyboard / mouse")
+                    .changed();
+                changed
+            })
+            .inner
+        };
+        if changed {
+            self.push_profile();
+            self.save();
+            self.mark_activity();
+        }
+    }
+
     fn export_current_mapping(&mut self) {
         match profile_io::export_profile(&self.current_profile()) {
             Ok(Some(path)) => {
@@ -1041,6 +1202,9 @@ impl X360ceApp {
                 .map(|entry| entry.binding != InputBinding::None)
                 .unwrap_or(false);
 
+            self.render_output_targets(ui);
+            let keyboard_mouse_mode = self.current_profile().simulate_keyboard_mouse;
+
             let title = ui.add(
                 egui::Label::new(RichText::new(control.label()).size(18.0).strong())
                     .sense(Sense::click()),
@@ -1082,6 +1246,10 @@ impl X360ceApp {
                 .size(11.0)
                 .color(MUTED),
             );
+
+            if keyboard_mouse_mode {
+                self.render_output_action(ui, control);
+            }
 
             if control.is_axis() || control.is_trigger() {
                 ui.add_space(8.0);
